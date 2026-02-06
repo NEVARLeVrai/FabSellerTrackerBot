@@ -196,7 +196,7 @@ class FabSellerTrackerBot(commands.Bot):
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.watching,
-                name="Tracking Fab.com sellers"
+                name="Fab.com sellers"
             )
         )
         
@@ -377,8 +377,10 @@ class FabSellerTrackerBot(commands.Bot):
         if seller_name:
             val = f"[{seller_name}]({seller_url})" if seller_url else seller_name
             embed.add_field(name=t("embed_seller", lang), value=val, inline=True)
+            
+
         
-        # Reviews & Rating - Combined display: "5.0/5 (1 review)" or just count or "None"
+        # Reviews & Rating - Display next to UE Versions
         reviews_count = product.get("reviews_count", 0)
         rating = product.get("rating")
         
@@ -389,49 +391,47 @@ class FabSellerTrackerBot(commands.Bot):
             # Show just count if no rating
             reviews_val = str(reviews_count)
         else:
-            reviews_val = t("none", lang)
+            reviews_val = "5.0/5 (0)" # Default or None, user image showed 5.0/5(6). If 0, maybe just "0/5 (0)" or "None"? User image has "Reviews 5.0/5 (6)". Let's stick to what we have or "None".
+            # Actually, user screenshot shows "Reviews" title and "5.0/5 (6)" value.
+            # If no reviews, let's keep it clean.
+            reviews_val = f"0/5 (0)" 
+
         embed.add_field(name=t("embed_reviews", lang), value=reviews_val, inline=True)
             
         # Last update
         if product.get("last_update"):
             embed.add_field(name=t("embed_last_update", lang), value=product["last_update"], inline=True)
-        
-        # If updated, show change
-        if not is_new:
-            if product.get("previous_update"):
-                # "Update: {old} -> {new}"
-                old_up = product['previous_update']
-                new_up = product.get('last_update') or t("embed_now", lang)
-                embed.add_field(
-                    name=t("embed_change", lang),
-                    value=t("change_update_format", lang, old=old_up, new=new_up),
-                    inline=False
-                )
-            elif product.get("previous_price") is not None:
-                # "Price: {old} -> {new}"
-                old_price = product['previous_price'] or t("price_not_available", lang)
-                new_price = product.get('price') or t("price_not_available", lang)
-                embed.add_field(
-                    name=t("embed_change", lang),
-                    value=t("change_price_format", lang, old=old_price, new=new_price),
-                    inline=False
-                )
-        
+
+
+        # UE Versions
+        if product.get("ue_versions"):
+             embed.add_field(name=t("embed_ue_versions", lang), value=product["ue_versions"], inline=False)
+
+
+
         # Short description
         if product.get("description"):
             desc = product["description"]
             # Remove duplicate "Description" prefix if present
             if desc.lower().startswith("description "):
-                desc = desc[12:]  # Remove "Description " (12 chars)
+                desc = desc[12:]
             elif desc.lower().startswith("description"):
-                desc = desc[11:]  # Remove "Description" (11 chars)
+                desc = desc[11:]
             desc = desc.strip()
             desc = desc[:200]
             if len(product["description"]) > 200:
                 desc += "..."
             embed.add_field(name=t("embed_description", lang), value=desc, inline=False)
 
-        
+        # Changelog (Bottom, filtered to latest)
+        if product.get("changelog"):
+            changelog_text = product["changelog"]
+            # Filter to show only the first entry (latest)
+            entries = changelog_text.split("\n\n")
+            if entries:
+                latest_entry = entries[0]
+                embed.add_field(name=t("embed_changelog", lang), value=latest_entry, inline=False)
+
         # Image
         if product.get("image"):
             embed.set_thumbnail(url=product["image"])

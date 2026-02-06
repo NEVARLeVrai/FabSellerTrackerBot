@@ -19,5 +19,8 @@ PyVirtualDisplay>=3.0
 # Timezone data (required for Windows)
 tzdata
 
+# Stealth
+playwright-stealth>=1.0.0
+
 # Timezone support (built-in since Python 3.9)
 # zoneinfo is in stdlib

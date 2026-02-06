@@ -44,6 +44,8 @@
   "embed_seller": "🏪 Seller",
   "embed_last_update": "📅 Last Update",
   "embed_change": "📝 Change",
+  "embed_ue_versions": "🎮 UE Versions",
+  "embed_changelog": "📜 Changelog",
   "embed_description": "📄 Description",
   "embed_footer": "Fab Seller Tracker",
   "change_update_format": "📅 {old} ➜ {new}",

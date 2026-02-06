@@ -43,6 +43,13 @@ def check_requirements():
         missing = requirements
     else:
         for req in requirements:
+            # Handle comments and empty lines
+            if req.startswith("#") or not req.strip():
+                continue
+            
+            # Simple parsing to get package name
+            pkg_name = req.split(">")[0].split("<")[0].split("=")[0].strip()
+            
             try:
                 pkg_resources.require(req)
             except (pkg_resources.DistributionNotFound, pkg_resources.VersionConflict):

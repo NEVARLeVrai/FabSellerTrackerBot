@@ -73,16 +73,39 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
                     # Set locale based on currency
                     currency_settings = CURRENCY_LOCALES.get(currency, CURRENCY_LOCALES[DEFAULT_CURRENCY])
                     
+                    # Launch Browser with Stealth args
+                    args = [
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-infobars"
+                    ]
+                    # Note: Headless might need to be False for some CF challenges, but let's try True with stealth first
+                    # or keep it consistent with the user's manual test which used headless=False?
+                    # The user manual test used headless=False. Let's stick to headless=True for a bot, but with args.
+                    # If it fails, we might need headless=False (virtual display on linux).
+                    
                     browser = await p.firefox.launch(
                         headless=True,
-                        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+                        args=args
                     )
                     
                     context = await browser.new_context(
                         locale=currency_settings["locale"],
-                        timezone_id=currency_settings["timezone"]
+                        timezone_id=currency_settings["timezone"],
+                        # Add stealth user agent
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                        viewport={"width": 1920, "height": 1080}
                     )
-                    page = await context.new_page()
+                    
+                    # Apply Stealth
+                    try:
+                        from playwright_stealth import Stealth
+                        page = await context.new_page()
+                        stealth = Stealth()
+                        await stealth.apply_stealth_async(page)
+                    except Exception as e:
+                        logger.warning(f"Failed to apply stealth: {e}")
+                        page = await context.new_page()
                     
                     logger.info(f"Loading seller page: {seller_url}")
                     await page.goto(seller_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
@@ -207,11 +230,31 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
         for attempt in range(1, retries + 1):
             try:
                 async with async_playwright() as p:
+                    # Launch Browser with Stealth args
+                    args = [
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-infobars"
+                    ]
                     browser = await p.firefox.launch(
                         headless=True,
-                        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
+                        args=args
                     )
-                    page = await browser.new_page()
+                    
+                    context = await browser.new_context(
+                         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                         viewport={"width": 1920, "height": 1080}
+                    )
+                    
+                    # Apply Stealth
+                    try:
+                        from playwright_stealth import Stealth
+                        page = await context.new_page()
+                        stealth = Stealth()
+                        await stealth.apply_stealth_async(page)
+                    except Exception as e:
+                        logger.warning(f"Failed to apply stealth: {e}")
+                        page = await context.new_page()
                     
                     logger.info(f"Loading product page: {product_url}")
                     await page.goto(product_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
@@ -370,7 +413,91 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                             details["reviews_count"] = int(reviews_match2.group(1))
                         elif "No reviews yet" in page_text or "No rating yet" in page_text:
                             details["reviews_count"] = 0
+
+                    # Extract Supported Unreal Engine Versions
+                    # Search for text "Supported Unreal Engine Versions"
+                    ue_label = soup.find(string=lambda t: t and "Supported Unreal Engine Versions" in t)
+                    if ue_label:
+                        # Try to find value in siblings of parent, or parent's parent
+                        ue_parent = ue_label.parent
+                        for _ in range(3): # Traverse up 3 levels max
+                            if not ue_parent: break
+                            
+                            # Check next sibling div
+                            ue_value_div = ue_parent.find_next_sibling("div")
+                            if ue_value_div:
+                                val = _clean_text(ue_value_div.get_text())
+                                # Validate it looks like versions (digits and dots)
+                                if any(c.isdigit() for c in val):
+                                    details["ue_versions"] = val
+                                    break
+                            
+                            ue_parent = ue_parent.parent
                     
+                    # Fallback search if direct sibling fails (sometimes structure varies)
+                    if not details.get("ue_versions"):
+                         # Try searching by text in the whole page text using regex
+                         # Pattern: "Supported Unreal Engine Versions" followed by versions (digits, dots, dashes, "and")
+                         # Example: "Supported Unreal Engine Versions 4.22 – 4.27 and 5.0 – 5.7"
+                         # Note: get_text might collapse newlines to spaces
+                         
+                         # Look for line starting with Supported...
+                         ue_fallback = re.search(r"Supported Unreal Engine Versions\s*([\d.\s\–\-and]+)", page_text, re.IGNORECASE)
+                         if ue_fallback:
+                             cand = ue_fallback.group(1).strip()
+                             if len(cand) > 3 and any(c.isdigit() for c in cand) and len(cand) < 50:
+                                 details["ue_versions"] = cand
+                    
+                    # Extract Changelog
+                    try:
+                        # Find Changelog button/tab - usually "Changelog" text
+                        # Use Playwright locators for interaction
+                        changelog_btn = page.get_by_text("Changelog", exact=False)
+                        if await changelog_btn.count() > 0:
+                            # Click the first one
+                            await changelog_btn.first.click()
+                            
+                            # Wait for modal to appear
+                            try:
+                                modal = page.locator(".fabkit-Modal-content")
+                                await modal.wait_for(state="visible", timeout=3000)
+                                
+                                # Parse modal content
+                                modal_html = await modal.inner_html()
+                                modal_soup = BeautifulSoup(modal_html, "html.parser")
+                                
+                                entries = []
+                                # Items are in stacked divs
+                                for stack_item in modal_soup.find_all("div", class_="fabkit-Stack-root fabkit-Stack--column", recursive=True):
+                                    date_tag = stack_item.find("h3")
+                                    content_div = stack_item.find("div", class_="fabkit-RichContent-root")
+                                    
+                                    if date_tag and content_div:
+                                        date_str = _clean_text(date_tag.get_text())
+                                        notes = _clean_text(content_div.get_text())
+                                        
+                                        # Filter empty notes if desired, or keep them
+                                        if "No notes provided" in notes:
+                                            entries.append(f"**{date_str}**: No notes")
+                                        else:
+                                            # Truncate notes if too long
+                                            if len(notes) > 200:
+                                                notes = notes[:200] + "..."
+                                            entries.append(f"**{date_str}**\n{notes}")
+                                        
+                                        if len(entries) >= 3: # Keep top 3
+                                            break
+                                
+                                if entries:
+                                    details["changelog"] = "\n\n".join(entries)
+                                    
+                            except Exception as e:
+                                # Modal didn't appear or timeout
+                                logger.debug(f"Changelog modal issue: {e}")
+                                
+                    except Exception as e:
+                        logger.warning(f"Error extracting changelog: {e}")
+
                     await browser.close()
                     
                     logger.info(f"Details retrieved for {product_url}: last_update={details['last_update']}")
@@ -491,8 +618,10 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
                 **product,
                 "image": details.get("image") or product.get("image"),
                 "price": details.get("price") or product.get("price"),
+                "ue_versions": details.get("ue_versions"),
                 "last_update": details.get("last_update"),
                 "published": details.get("published"),
+                "changelog": details.get("changelog"),
                 "description": details.get("description"),
                 "reviews_count": details.get("reviews_count", 0),
                 "rating": details.get("rating"),
