@@ -65,7 +65,7 @@ WEEKDAYS = {
 }
 
 # Fab.com URLs
-FAB_BASE_URL = "https://www.fab.com"
+FAB_BASE_URL = "https://fab.com"
 FAB_SELLERS_URL = f"{FAB_BASE_URL}/sellers/"
 FAB_LISTINGS_URL = f"{FAB_BASE_URL}/listings/"
 

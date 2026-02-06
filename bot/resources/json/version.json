@@ -1,6 +1,13 @@
 {
-  "version": "3.0.0",
+  "version": "3.1.0",
   "changelog": {
+    "3.1.0": [
+      "Implemented Case-Insensitive URL Standardization to prevent duplicate notifications",
+      "Removed automatic channel assignment in /sub to ensure user-configured delivery",
+      "Added proactive validation and early-exit for unconfigured notification channels",
+      "Improved reliability of Supported Unreal Engine Versions extraction logic",
+      "Standardized all internal URL handling to use non-www fab.com base"
+    ],
     "3.0.0": [
       "Major architectural restructuring and SQLite migration",
       "Modularized codebase into core, services, models, and resources",

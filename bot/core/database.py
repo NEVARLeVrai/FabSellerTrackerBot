@@ -51,6 +51,7 @@ class DatabaseManager:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS products (
                     id TEXT PRIMARY KEY,
+                    seller_url TEXT,
                     name TEXT,
                     url TEXT,
                     price_json TEXT, -- Dictionary of currencies
@@ -66,6 +67,12 @@ class DatabaseManager:
                     first_seen TEXT
                 )
             """)
+            
+            # Migration/Safe update: check if seller_url exists
+            cursor = conn.execute("PRAGMA table_info(products)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'seller_url' not in columns:
+                conn.execute("ALTER TABLE products ADD COLUMN seller_url TEXT")
             
             # Seller Cache Info (last check date, etc.)
             conn.execute("""
@@ -126,22 +133,49 @@ class DatabaseManager:
 
     # --- Product Methods ---
     def get_seller_products(self, seller_url: str) -> List[Product]:
-        # Implementation depends on how we link products to sellers. 
-        # For now, let's assume we store them but they are global.
-        # Fab allows searching products by seller in URL.
-        # Actually, let's just keep it simple: products are stored by their ID.
-        pass # To be fleshed out if needed, or just get all products.
+        """Returns all products for a specific seller from DB."""
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT * FROM products WHERE seller_url = ?", (seller_url,)).fetchall()
+            products = []
+            for row in rows:
+                p = Product(
+                    id=row['id'],
+                    name=row['name'],
+                    url=row['url'],
+                    seller_url=row['seller_url'],
+                    price=json.loads(row['price_json'] or '{}'),
+                    image=row['image'],
+                    ue_versions=row['ue_versions'],
+                    last_update=row['last_update'],
+                    published=row['published'],
+                    changelog=row['changelog'],
+                    description=row['description'],
+                    reviews_count=row['reviews_count'],
+                    rating=row['rating'],
+                    last_seen=row['last_seen'],
+                    first_seen=row['first_seen']
+                )
+                products.append(p)
+            return products
 
-    def save_products(self, products: List[Product]):
+    def save_products(self, products: List[Product], seller_url: str = None):
+        """Saves or updates products in DB, with optional seller linkage."""
         with self._get_connection() as conn:
             for p in products:
+                # Use provided seller_url or fall back to previous one if it exists
+                s_url = seller_url
+                if not s_url:
+                    existing = conn.execute("SELECT seller_url FROM products WHERE id = ?", (p.id,)).fetchone()
+                    if existing:
+                        s_url = existing['seller_url']
+
                 conn.execute("""
                     INSERT OR REPLACE INTO products
-                    (id, name, url, price_json, image, ue_versions, last_update, published, 
+                    (id, seller_url, name, url, price_json, image, ue_versions, last_update, published, 
                      changelog, description, reviews_count, rating, last_seen, first_seen)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    p.id, p.name, p.url, json.dumps(p.price), p.image, p.ue_versions,
+                    p.id, s_url, p.name, p.url, json.dumps(p.price), p.image, p.ue_versions,
                     p.last_update, p.published, p.changelog, p.description,
                     p.reviews_count, p.rating, p.last_seen, p.first_seen
                 ))

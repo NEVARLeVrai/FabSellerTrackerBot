@@ -127,5 +127,7 @@
   "config_mentions_count": "{new} rôles (nouveaux), {upd} rôles (MAJ)",
   "config_roles_new": "Rôles (Nouveaux)",
   "config_roles_upd": "Rôles (MAJ)",
-  "config_seller_list": "Liste des Sellers"
+  "config_seller_list": "Liste des Sellers",
+  "sub_no_channel_tip": "💡 **Astuce** : Aucun canal de notification n'est configuré. Utilisez `/set channel` pour recevoir les alertes !",
+  "check_no_channel_warn": "Erreur : Aucun canal de notification n'est configuré. La vérification a été annulée."
 }

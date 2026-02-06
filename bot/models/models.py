@@ -7,6 +7,7 @@ class Product:
     id: str
     name: str
     url: str
+    seller_url: Optional[str] = None
     price: Dict[str, str] = field(default_factory=dict)  # {"USD": "$39.99", "EUR": "33.95€"}
     image: Optional[str] = None
     ue_versions: Optional[str] = None
@@ -37,6 +38,7 @@ class Product:
             id=data.get("id"),
             name=data.get("name"),
             url=data.get("url"),
+            seller_url=data.get("seller_url"),
             price=price,
             image=data.get("image"),
             ue_versions=data.get("ue_versions"),

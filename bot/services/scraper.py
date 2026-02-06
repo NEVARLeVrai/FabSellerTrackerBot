@@ -448,38 +448,64 @@ async def get_product_details_with_currency(product_url: str, currency: str = DE
                             details["reviews_count"] = 0
 
                     # Extract Supported Unreal Engine Versions
-                    # Search for text "Supported Unreal Engine Versions"
+                    ue_versions = None
                     ue_label = soup.find(string=lambda t: t and "Supported Unreal Engine Versions" in t)
                     if ue_label:
-                        # Try to find value in siblings of parent, or parent's parent
+                        logger.debug("UE Label found in DOM")
                         ue_parent = ue_label.parent
-                        for _ in range(3): # Traverse up 3 levels max
+                        # Search siblings or ancestors' siblings
+                        found = False
+                        for _ in range(4): # Increase depth slightly to 4
                             if not ue_parent: break
                             
                             # Check next sibling div
                             ue_value_div = ue_parent.find_next_sibling("div")
                             if ue_value_div:
                                 val = _clean_text(ue_value_div.get_text())
-                                # Validate it looks like versions (digits and dots)
                                 if any(c.isdigit() for c in val):
-                                    details["ue_versions"] = val
+                                    ue_versions = val
+                                    logger.debug(f"UE Versions found via sibling: {ue_versions}")
+                                    found = True
                                     break
-                            
                             ue_parent = ue_parent.parent
                     
-                    # Fallback search if direct sibling fails (sometimes structure varies)
-                    if not details.get("ue_versions"):
-                         # Try searching by text in the whole page text using regex
-                         # Pattern: "Supported Unreal Engine Versions" followed by versions (digits, dots, dashes, "and")
-                         # Example: "Supported Unreal Engine Versions 4.22 – 4.27 and 5.0 – 5.7"
-                         # Note: get_text might collapse newlines to spaces
-                         
-                         # Look for line starting with Supported...
-                         ue_fallback = re.search(r"Supported Unreal Engine Versions\s*([\d.\s\–\-and]+)", page_text, re.IGNORECASE)
+                    # Fallback 1: Direct Regex on page text (Expanded pattern)
+                    if not ue_versions:
+                         # Pattern: "Supported Unreal Engine Versions" + separator + versions (digits, dots, delimiters, "and")
+                         # Accept specialized separators like – (en dash) or - (hyphen) and commas
+                         ue_fallback = re.search(
+                             r"Supported Unreal Engine Versions\s*[:\s]*([\d.\s\–\-\,and]+)", 
+                             page_text, 
+                             re.IGNORECASE
+                         )
                          if ue_fallback:
                              cand = ue_fallback.group(1).strip()
-                             if len(cand) > 3 and any(c.isdigit() for c in cand) and len(cand) < 50:
-                                 details["ue_versions"] = cand
+                             # Simple validation: contains digits, reasonable length
+                             if len(cand) > 3 and any(c.isdigit() for c in cand) and len(cand) < 60:
+                                 ue_versions = cand
+                                 logger.debug(f"UE Versions found via fallback regex 1: {ue_versions}")
+
+                    # Fallback 2: General "Technical Specifications" search
+                    if not ue_versions:
+                        tech_specs = soup.find(string=lambda t: t and "Technical Specifications" in t)
+                        if tech_specs:
+                            # Usually versions are listed shortly after this header
+                            tech_parent = tech_specs.parent
+                            for _ in range(3):
+                                if not tech_parent: break
+                                next_text = tech_parent.get_text(" ", strip=True)
+                                # Look for version-like strings (e.g. 5.1, 4.27)
+                                ver_match = re.search(r"\b(4\.\d+|5\.\d+)\b", next_text)
+                                if ver_match:
+                                    # Try to extract the whole block if it looks like a version list
+                                    block_match = re.search(r"([\d.\s\–\-\,and]{3,50})", next_text[ver_match.start():])
+                                    if block_match:
+                                        ue_versions = block_match.group(1).strip()
+                                        logger.debug(f"UE Versions found via Tech Specs fallback: {ue_versions}")
+                                        break
+                                tech_parent = tech_parent.find_next_sibling()
+
+                    details["ue_versions"] = ue_versions
                     
                     # Extract Changelog
                     try:
@@ -608,7 +634,7 @@ async def scrape_seller_with_details(seller_url: str, existing_products: List[Pr
         return {"products": [], "changes": {"new": [], "updated": []}}
     
     # Create dict of existing products by ID
-    existing_by_id = {p["id"]: p for p in (existing_products or [])}
+    existing_by_id = {p.id: p for p in (existing_products or [])}
     
     # Phase 2: Get details for each product (only if new or potentially modified)
     enriched_products = []

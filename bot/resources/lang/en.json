@@ -127,5 +127,7 @@
   "config_mentions_count": "{new} roles for new, {upd} roles for updates",
   "config_roles_new": "Roles (New)",
   "config_roles_upd": "Roles (Updated)",
-  "config_seller_list": "Tracked Sellers"
+  "config_seller_list": "Tracked Sellers",
+  "sub_no_channel_tip": "💡 **Tip**: No notification channel is configured. Use `/set channel` to receive alerts!",
+  "check_no_channel_warn": "Error: No notification channel is configured. The check has been cancelled."
 }

@@ -60,10 +60,12 @@ logger.add(LOG_FILE, rotation="10 MB", level="INFO")
 def extract_seller_name(url: str) -> Optional[str]:
     """Extracts seller name from URL."""
     # https://www.fab.com/sellers/GameAssetFactory -> GameAssetFactory
-    if "/sellers/" in url:
-        parts = url.split("/sellers/")
+    # Handle /sellers/ or /Sellers/
+    url_lower = url.lower()
+    if "/sellers/" in url_lower:
+        parts = url.lower().split("/sellers/")
         if len(parts) > 1:
-            return parts[1].rstrip("/").split("?")[0]
+            return parts[1].rstrip("/").split("?")[0].lower()
     return None
 
 
@@ -71,7 +73,7 @@ def normalize_seller_url(url: str) -> Optional[str]:
     """Normalizes the seller URL."""
     name = extract_seller_name(url)
     if name:
-        return f"https://www.fab.com/sellers/{name}"
+        return f"https://fab.com/sellers/{name}"
     return None
 
 
@@ -195,59 +197,38 @@ class FabSellerTrackerBot(commands.Bot):
     
     async def _check_all_sellers(self):
         """Checks all sellers from all guilds."""
-        logger.info("Starting check for all sellers")
-        
         # Get all unique sellers from all guilds
         with self.db._get_connection() as conn:
             rows = conn.execute("SELECT DISTINCT seller_url FROM subscriptions").fetchall()
             all_sellers = [r['seller_url'] for r in rows]
         
-        for seller_url in all_sellers:
+        count_total = len(all_sellers)
+        logger.info(f"┌───────────────────────────────────────────────────┐")
+        logger.info(f"│ 🔄 SYNC STARTED ({count_total} sellers to check)        │")
+        logger.info(f"└───────────────────────────────────────────────────┘")
+        
+        success_count = 0
+        error_count = 0
+        
+        for i, seller_url in enumerate(all_sellers, 1):
             try:
-                # Get existing products from DB
-                # Note: Currently products aren't strictly linked to sellers in my DB schema, 
-                # but we can filter by seller_url if we add that column or just use the ID-based storage.
-                # For now, let's assume we fetch all products the scraper returns.
-                # To detect changes we need the PREVIOUS products of THIS seller.
-                
-                # We need a way to get products by seller. Let's add that to DB or use a simplification.
-                # Actually, the scraper returns ALL products of a seller.
-                # To detect changes, we compare with what we had for that seller specifically.
-                
-                # Fetch seller status from DB
-                with self.db._get_connection() as conn:
-                    seller_info = conn.execute("SELECT last_status FROM seller_cache WHERE seller_url = ?", (seller_url,)).fetchone()
-                
-                # For change detection, we'll fetch all products currently in DB 
-                # (In a real system we'd link products to sellers).
-                # Let's just pass an empty list for now if we don't have a good way to filter, 
-                # or better: we can store the list of IDs for each seller.
-                
-                # BETTER: Get products that were "seen" for this seller.
-                # Logic: products where urL starts with seller_url (approximate) or linked in a join table.
-                # Let's just fetch all and filter by URL (Seller name is in listing URL usually).
-                
-                # Actually, the simplest is to just fetch the IDs of products we know for this seller.
-                # Let's skip the detailed cleanup for now and just pass existing_products=[] to ensure we re-scrape details.
-                # Or better, fetch from DB.
+                seller_name = extract_seller_name(seller_url)
+                logger.info(f"Syncing [{i}/{count_total}]: {seller_name}")
                 
                 currency = self.get_global_currency()
-                # For now, let's pass an empty list or fetch all products.
-                # Migration note: We need the products to detect changes.
-                existing_products = [] # We'll improve this with a proper Seller <-> Product relation soon.
+                existing_products = self.db.get_seller_products(seller_url)
                 
                 result = await scrape_seller_with_details(seller_url, existing_products, currency=currency)
                 
                 if result:
-                    # Save status to DB
                     self.db.update_seller_status(seller_url, "success")
+                    self.db.save_products(result["products"], seller_url=seller_url)
                     
-                    # Convert to Product objects and save
-                    new_products = result["products"]
-                    self.db.save_products(new_products)
-                    
-                    # Notify subscribed guilds
                     changes = result["changes"]
+                    new_c = len(changes.get("new", []))
+                    upd_c = len(changes.get("updated", []))
+                    if new_c > 0 or upd_c > 0:
+                        logger.info(f"  ↳ Changes: {new_c} new, {upd_c} updated")
                     
                     for prod in changes.get("new", []):
                         await self._notify_guilds(seller_url, prod, is_new=True)
@@ -256,12 +237,20 @@ class FabSellerTrackerBot(commands.Bot):
                     for prod in changes.get("updated", []):
                         await self._notify_guilds(seller_url, prod, is_new=False)
                         await asyncio.sleep(0.5)
+                    
+                    success_count += 1
+                else:
+                    logger.warning(f"  ↳ Scraping failed for {seller_name}")
+                    error_count += 1
                 
             except Exception as e:
-                logger.error(f"Check error {seller_url}: {e}")
+                logger.error(f"  ↳ Check error for {seller_url}: {e}")
                 self.db.update_seller_status(seller_url, "error")
+                error_count += 1
                 
-        logger.info("Check completed")
+        logger.info(f"┌───────────────────────────────────────────────────┐")
+        logger.info(f"│ ✅ SYNC COMPLETED: {success_count} success, {error_count} errors      │")
+        logger.info(f"└───────────────────────────────────────────────────┘")
         
     async def _notify_guilds(self, seller_url: str, product: dict, is_new: bool):
         """Notifies guilds about new/updated products."""
@@ -445,19 +434,16 @@ async def sub_command(interaction: discord.Interaction, seller_url: str):
         return
     
     config.sellers.append(normalized_url)
-    
-    # Set default notification channels if not configured
-    if config.channel_new is None:
-        config.channel_new = interaction.channel.id
-    if config.channel_updated is None:
-        config.channel_updated = interaction.channel.id
-    
     bot.db.save_guild(config)
     
     seller_name = extract_seller_name(normalized_url)
-    await interaction.response.send_message(
-        t("sub_success", lang, seller=seller_name)
-    )
+    msg = t("sub_success", lang, seller=seller_name)
+    
+    # Validation: warn if no channels are set
+    if config.channel_new is None or config.channel_updated is None:
+        msg += f"\n\n{t('sub_no_channel_tip', lang)}"
+    
+    await interaction.response.send_message(msg)
 
 
 @app_commands.command(name="unsub", description="Unsubscribe from a Fab.com seller")
@@ -899,9 +885,18 @@ async def check_now(interaction: discord.Interaction):
     
     await interaction.response.send_message(t("check_started", lang))
     
+    # Validation: early exit if no channels are configured
+    if config.channel_new is None and config.channel_updated is None:
+        await interaction.followup.send(f"❌ {t('check_no_channel_warn', lang)}\n\n{t('sub_no_channel_tip', lang)}")
+        return
+    
+    logger.info(f"--- MANUAL SYNC STARTED (Guild: {interaction.guild.name}) ---")
+    
     total_new = 0
     total_updated = 0
     total_sellers = len(sellers)
+    success_count = 0
+    error_count = 0
     
     for i, seller_url in enumerate(sellers, 1):
         seller_name = seller_url.split("/sellers/")[-1].rstrip("/")
@@ -915,9 +910,12 @@ async def check_now(interaction: discord.Interaction):
                 logger.warning(f"Failed to update progress message: {e}")
 
         try:
-            # For now passing empty to re-scrape
+            logger.info(f"Manual Syncing [{i}/{total_sellers}]: {seller_name}")
+            
             currency = bot.get_global_currency()
-            result = await scrape_seller_with_details(seller_url, [], progress_callback=progress_callback, currency=currency)
+            existing_products = bot.db.get_seller_products(seller_url)
+            
+            result = await scrape_seller_with_details(seller_url, existing_products, progress_callback=progress_callback, currency=currency)
             
             if result:
                 products_count = len(result["products"])
@@ -927,7 +925,7 @@ async def check_now(interaction: discord.Interaction):
                 
                 # Convert to objects and save
                 prods = result["products"]
-                bot.db.save_products(prods)
+                bot.db.save_products(prods, seller_url=seller_url)
                 
                 changes = result["changes"]
                 new_count = len(changes.get("new", []))
@@ -946,15 +944,20 @@ async def check_now(interaction: discord.Interaction):
                     for prod in changes.get("updated", []):
                         await bot._notify_guilds(seller_url, prod, is_new=False)
                         await asyncio.sleep(0.5)
+                success_count += 1
             else:
                 await interaction.followup.send(t("check_failed", lang, seller=seller_name))
+                error_count += 1
                     
         except Exception as e:
-            logger.error(f"Check error {seller_url}: {e}")
+            logger.error(f"Manual check error {seller_url}: {e}")
             await interaction.followup.send(t("check_error", lang, seller=seller_name, error=str(e)[:100]))
             
             bot.db.update_seller_status(seller_url, "error")
+            error_count += 1
     
+    logger.info(f"--- MANUAL SYNC COMPLETED ({success_count} success, {error_count} errors) ---")
+
     # Final message
     if total_new == 0 and total_updated == 0:
         await interaction.followup.send(t("check_no_changes", lang))
