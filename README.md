@@ -1,69 +1,90 @@
-# Epic Games Monthly Free Assets Tracker Bot
+# 🛒 Fab Seller Tracker Bot
 
-<img width="1024" height="1024" alt="epic_assets_avatar" src="https://github.com/user-attachments/assets/3ba5ab1d-9fba-41a0-bae3-2a557eeefb91" />
+Bot Discord pour suivre les produits de sellers sur [Fab.com](https://fab.com) et recevoir des notifications automatiques.
 
-## Overview
+## ✨ Fonctionnalités
 
-The Epic Games Free Assets Tracker Bot is a Discord bot designed to help Unreal Engine developers stay updated with the latest free assets available on the Epic Games Store. This bot provides an automated solution for tracking, notifying, and displaying the newest free assets of the month, ensuring developers don't miss out on valuable resources.
+- 📦 Suivi de multiples sellers Fab.com
+- 🔔 Notifications pour nouveaux produits et mises à jour
+- ⏰ Vérifications planifiées (configurable)
+- 🌍 Support multi-serveurs et multi-fuseaux horaires
+- 🇫🇷 Messages en français
 
-## Features
+## 🚀 Installation
 
-- **Automated Daily Checks**: The bot performs daily checks for new free assets and notifies subscribed Discord channels and users if there are updates.
-- **Admin and DM Commands**: Users with administrator permissions can manage subscriptions, and individual users can subscribe/unsubscribe via direct messages.
-- **Time Left Notification**: Users can query the bot to find out how much time is left until the next asset check. The bot provides a formatted response and automatically deletes the message after a short period.
-- **Image Attachments**: When new assets are detected, the bot sends a detailed message with asset names, links, and attached images.
+### 1. Cloner le repo
 
-## Commands
+```bash
+git clone https://github.com/votre-repo/FabSellerTrackerBot.git
+cd FabSellerTrackerBot
+```
 
-### Admin Commands
+### 2. Installer les dépendances
 
-- `/assets sub`: Subscribes the current server channel to asset updates. Can only be run by administrators.
-- `/assets unsub`: Unsubscribes the server from asset updates. Can only be run by administrators.
+```bash
+pip install -r requirements.txt
+```
 
-### General Commands
+### 3. Installer Playwright (navigateur)
 
-- `/assets sub`: Subscribes the user to asset updates via direct message.
-- `/assets unsub`: Unsubscribes the user from asset updates via direct message.
-- `/assets time`: Displays the time remaining until the next check for new assets. This message is automatically deleted after 10 seconds.
+```bash
+python -m playwright install firefox
+```
 
-## How It Works
+### 4. Configurer le token Discord
 
-1. **Daily Checks**: The bot uses a background task to check for new assets every 24 hours. The time of the next check is stored and updated after each check.
-2. **Asset Retrieval**: The bot scrapes the Epic Games Store page for the latest free assets using BeautifulSoup and Requests libraries.
-3. **Notifications**: If new assets are found, the bot sends a message to the designated channels and subscribed users with the asset details and images.
+**Windows:**
 
-## Installation
+```cmd
+set ASSETS_BOT_TOKEN=votre_token_discord
+```
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/MMadmer/EpicAssetsNotifyBot.git
-   ```
-2. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Set up your Discord bot token:
-- Go to the Discord Developer Portal.
-- Create a new application and bot.
-- Copy the bot token and replace YOUR_TOKEN_HERE in the code.
-4. Run the bot:
-  ```bash
-  python main.py
-  ```
+**Linux/Mac:**
 
-## Usage
+```bash
+export ASSETS_BOT_TOKEN=votre_token_discord
+```
 
-To use the bot, invite it to your Discord server and use the commands listed above. Ensure that the bot has the necessary permissions to read and send messages in the desired channels.
+### 5. Lancer le bot
 
-## Contributing
+```bash
+python main.py
+```
 
-Contributions are welcome! Feel free to submit a pull request or open an issue to suggest improvements or report bugs.
+## 📋 Commandes Discord
 
-## License
+| Commande                                | Description                              |
+| --------------------------------------- | ---------------------------------------- |
+| `/sub <url>`                            | S'abonner à un seller                    |
+| `/unsub <url>`                          | Se désabonner d'un seller                |
+| `/list`                                 | Voir les sellers suivis                  |
+| `/set timezone <tz>`                    | Configurer le fuseau horaire             |
+| `/set checkdate <jour> <heure>`         | Configurer le jour/heure de vérification |
+| `/set channel newproducts #channel`     | Canal pour nouveaux produits             |
+| `/set channel updatedproducts #channel` | Canal pour mises à jour                  |
+| `/check`                                | Forcer une vérification immédiate        |
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+## 📁 Structure du projet
 
----
+```
+├── config.py         # Configuration et messages
+├── scraper.py        # Scraping Fab.com
+├── main.py           # Bot Discord principal
+├── requirements.txt  # Dépendances Python
+└── data/             # Données sauvegardées (créé automatiquement)
+    ├── sellers_subscriptions.json
+    └── products_cache.json
+```
 
-With this bot, Unreal Engine developers can easily stay up-to-date with the latest free assets from the Epic Games Store, enhancing their development workflow and ensuring they never miss out on valuable resources.
+## 📝 Exemple d'utilisation
 
+```
+/sub https://fab.com/sellers/GameAssetFactory
+/set timezone Europe/Paris
+/set checkdate sunday 0 0
+/set channel newproducts #nouveautes
+```
+
+## 📜 License
+
+MIT License

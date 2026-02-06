@@ -1,472 +1,619 @@
-import random
-import aiohttp
-import discord
-from discord.ext import commands
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
-import asyncio
-from datetime import datetime, timedelta
-from io import BytesIO
+# -*- coding: utf-8 -*-
+"""
+Fab Seller Tracker Bot
+Bot Discord pour suivre les produits de sellers sur Fab.com
+"""
 import json
 import os
-import re
-from pyvirtualdisplay import Display
+import asyncio
+from datetime import datetime, timedelta
+from typing import Optional
+
+import discord
+from discord import app_commands
+from discord.ext import commands
 from loguru import logger
 from zoneinfo import ZoneInfo
 
-logger.add("bot.log", rotation="10 MB", level="INFO")
+from config import (
+    TOKEN,
+    DATA_FOLDER,
+    SELLERS_FILE,
+    PRODUCTS_CACHE_FILE,
+    DEFAULT_CHECK_SCHEDULE,
+    DEFAULT_TIMEZONE,
+    WEEKDAYS,
+    COLOR_NEW_PRODUCT,
+    COLOR_UPDATED_PRODUCT,
+    COLOR_INFO,
+    MESSAGES,
+    LOG_FILE
+)
+from scraper import scrape_seller_with_details
+
+logger.add(LOG_FILE, rotation="10 MB", level="INFO")
 
 
-def get_month_name():
-    month_names = {
-        1: "Январские", 2: "Февральские", 3: "Мартовские", 4: "Апрельские",
-        5: "Майские", 6: "Июньские", 7: "Июльские", 8: "Августовские",
-        9: "Сентябрьские", 10: "Октябрьские", 11: "Ноябрьские", 12: "Декабрьские"
-    }
-    current_month = datetime.now().month
-    return month_names[current_month]
+# ============================================================================
+# Fonctions utilitaires pour le stockage
+# ============================================================================
+
+def load_json(filepath: str) -> dict:
+    """Charge un fichier JSON."""
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Erreur chargement {filepath}: {e}")
+    return {}
 
 
-def _clean_text(s: str) -> str:
-    return re.sub(r"\s+", " ", s or "").strip()
-
-
-def _rus_month_genitive(month_num: int) -> str:
-    gen = {
-        1: "января", 2: "февраля", 3: "марта", 4: "апреля",
-        5: "мая", 6: "июня", 7: "июля", 8: "августа",
-        9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
-    }
-    return gen.get(month_num, "")
-
-
-def _parse_deadline_suffix(heading_text: str) -> str | None:
-    """
-    Parse strings like:
-      "Limited-Time Free (Until Sept 9 at 9:59 AM ET)"
-      "Limited-Time Free (Until Sep 9, 2025 at 9:59 AM ET)"
-    Return (ru): "до 9 сентября 9:59 GMT-4"
-    """
-    if not heading_text:
-        return None
-
-    # Extract "(Until ...)" part
-    m_paren = re.search(r"\(([^)]*Until[^)]*)\)", heading_text, flags=re.IGNORECASE)
-    if not m_paren:
-        return None
-    inside = m_paren.group(1)
-
-    # Capture: Month Day [Year] at HH:MM AM/PM TZ
-    rx = re.compile(
-        r"Until\s+([A-Za-z]{3,9})\s+(\d{1,2})(?:,?\s*(\d{4}))?\s+at\s+(\d{1,2}):(\d{2})\s*(AM|PM)?\s*([A-Z]{2,4})",
-        re.IGNORECASE
-    )
-    m = rx.search(inside)
-    if not m:
-        return None
-
-    mon_name_en = m.group(1).lower()
-    day = int(m.group(2))
-    year = int(m.group(3)) if m.group(3) else datetime.now().year
-    hh12 = int(m.group(4))
-    mm = int(m.group(5))
-    ampm = (m.group(6) or "").upper()
-    tz_abbr = (m.group(7) or "").upper()
-
-    mon_map = {
-        "jan": 1, "january": 1,
-        "feb": 2, "february": 2,
-        "mar": 3, "march": 3,
-        "apr": 4, "april": 4,
-        "may": 5,
-        "jun": 6, "june": 6,
-        "jul": 7, "july": 7,
-        "aug": 8, "august": 8,
-        "sep": 9, "sept": 9, "september": 9,
-        "oct": 10, "october": 10,
-        "nov": 11, "november": 11,
-        "dec": 12, "december": 12,
-    }
-    month = mon_map.get(mon_name_en)
-    if not month:
-        return None
-
-    # 12h → 24h
-    hour = hh12 % 12
-    if ampm == "PM":
-        hour += 12
-
-    # TZ map (Fab typically shows ET)
-    tz_map = {
-        "ET": "America/New_York",
-        "PT": "America/Los_Angeles",
-        "UTC": "UTC",
-        "GMT": "UTC"
-    }
-    tz_name = tz_map.get(tz_abbr, "UTC")
+def save_json(filepath: str, data: dict):
+    """Sauvegarde dans un fichier JSON."""
     try:
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        tz = ZoneInfo("UTC")
-
-    local_dt = datetime(year, month, day, hour, mm, tzinfo=tz)
-
-    # "GMT±H[:MM]"
-    offset = local_dt.utcoffset() or timedelta(0)
-    total_minutes = int(offset.total_seconds() // 60)
-    sign = "+" if total_minutes >= 0 else "-"
-    total_minutes = abs(total_minutes)
-    off_h, off_m = divmod(total_minutes, 60)
-    gmt_str = f"GMT{sign}{off_h}" if off_m == 0 else f"GMT{sign}{off_h}:{off_m:02d}"
-
-    rus_month = _rus_month_genitive(month)
-    return f"до {day} {rus_month} {hour}:{mm:02d} {gmt_str}"
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.info(f"Sauvegardé: {filepath}")
+    except Exception as e:
+        logger.error(f"Erreur sauvegarde {filepath}: {e}")
 
 
-async def get_free_assets(retries: int = 5):
-    """
-    Go to Fab homepage, find 'Limited-Time Free' section, collect listing cards directly
-    from the homepage (no per-listing navigation).
-    Returns: (assets: list[dict{name, link, image}], deadline_suffix: str|None)
-    """
-    homepage_url = "https://www.fab.com/"
-    display = Display() if not os.getenv("DISPLAY") else None
-
-    if display:
-        display.start()
-
-    try:
-        for attempt in range(1, retries + 1):
-            try:
-                async with async_playwright() as p:
-                    browser = await p.firefox.launch(
-                        headless=True,
-                        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
-                    )
-                    page = await browser.new_page()
-
-                    logger.info("Loading homepage...")
-                    await page.goto(homepage_url, wait_until="domcontentloaded", timeout=60000)
-                    await asyncio.sleep(1.0)
-
-                    content = await page.content()
-                    soup = BeautifulSoup(content, "html.parser")
-
-                    ltd_section = None
-                    ltd_heading_text = None
-                    for h2 in soup.find_all("h2"):
-                        heading_text = _clean_text(h2.get_text(" ", strip=True))
-                        if heading_text.startswith("Limited-Time Free"):
-                            ltd_section = h2.find_parent("section")
-                            ltd_heading_text = heading_text
-                            break
-
-                    if not ltd_section:
-                        logger.warning(f"'Limited-Time Free' section not found. Attempt {attempt}/{retries}")
-                        await browser.close()
-                        await asyncio.sleep(random.uniform(5, 9))
-                        continue
-
-                    deadline_suffix = _parse_deadline_suffix(ltd_heading_text) if ltd_heading_text else None
-
-                    # Collect items from the section without visiting each listing
-                    items = []
-                    seen = set()
-                    for li in ltd_section.find_all("li"):
-                        a = li.find("a", href=lambda h: h and h.startswith("/listings/"))
-                        if not a:
-                            continue
-                        link = "https://www.fab.com" + a["href"]
-                        if link in seen:
-                            continue
-                        seen.add(link)
-
-                        # Try several ways to get a readable name from the card
-                        prelim_name = _clean_text(a.get_text(" ", strip=True))
-                        if not prelim_name:
-                            aria = a.get("aria-label")
-                            if aria:
-                                prelim_name = _clean_text(aria)
-
-                        img_tag = li.find("img")
-                        thumb = img_tag["src"] if (img_tag and img_tag.get("src")) else None
-
-                        # Normalize image URL
-                        if thumb:
-                            if thumb.startswith("//"):
-                                thumb = "https:" + thumb
-                            elif thumb.startswith("/"):
-                                thumb = "https://www.fab.com" + thumb
-
-                        items.append({"name": prelim_name or "Untitled Listing", "link": link, "image": thumb})
-
-                    await browser.close()
-
-                    if not items:
-                        logger.info("Limited-Time Free section is empty on homepage.")
-                        return [], deadline_suffix
-
-                    logger.info(f"Collected {len(items)} listing cards from homepage.")
-                    return items, deadline_suffix
-
-            except Exception as e:
-                logger.error(f"Homepage parse error: {e}. Retrying {attempt}/{retries}...")
-                await asyncio.sleep(random.uniform(10, 15))
-
-        logger.error("Failed to fetch Limited-Time Free assets after several attempts.")
-        return None, None
-
-    finally:
-        if display:
-            display.stop()
+def extract_seller_name(url: str) -> Optional[str]:
+    """Extrait le nom du seller depuis l'URL."""
+    # https://www.fab.com/sellers/GameAssetFactory -> GameAssetFactory
+    if "/sellers/" in url:
+        parts = url.split("/sellers/")
+        if len(parts) > 1:
+            return parts[1].rstrip("/").split("?")[0]
+    return None
 
 
-def is_admin(ctx: commands.Context):
-    return ctx.guild is not None and ctx.author.guild_permissions.administrator
+def normalize_seller_url(url: str) -> Optional[str]:
+    """Normalise l'URL du seller."""
+    name = extract_seller_name(url)
+    if name:
+        return f"https://www.fab.com/sellers/{name}"
+    return None
 
 
-def is_dm(ctx: commands.Context):
-    return ctx.guild is None
+# ============================================================================
+# Bot principal
+# ============================================================================
 
-
-def load_data(filename):
-    if os.path.exists(filename):
-        with open(filename, 'r') as f:
-            data = json.load(f)
-            logger.info(f"Loaded {len(data) if isinstance(data, list) else '1'} objects from {filename}.")
-            return data
-    logger.warning(f"{filename} not found. Load failed.")
-    return []
-
-
-class EpicAssetsNotifyBot(commands.Bot):
-    def __init__(self, command_prefix: str, token: str):
+class FabSellerTrackerBot(commands.Bot):
+    def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
-        super().__init__(command_prefix=command_prefix, intents=intents)
-        self.token = token
-        self.add_commands()
-        self.data_folder = "/data/" if os.name != 'nt' else "data/"
-        self.subscribed_channels = load_data(os.path.join(self.data_folder, 'subscribers_channels_backup.json'))
-        self.subscribed_users = load_data(os.path.join(self.data_folder, 'subscribers_users_backup.json'))
-        self.assets_list = load_data(os.path.join(self.data_folder, 'assets_backup.json'))
-        self.deadline_suffix = ""
-        try:
-            if os.path.exists(os.path.join(self.data_folder, 'deadline_backup.json')):
-                with open(os.path.join(self.data_folder, 'deadline_backup.json'), 'r') as f:
-                    self.deadline_suffix = json.load(f) or ""
-        except Exception:
-            self.deadline_suffix = ""
-
+        super().__init__(command_prefix="!", intents=intents)
+        
+        # Chemins des fichiers
+        self.data_folder = DATA_FOLDER
+        self.sellers_file = os.path.join(self.data_folder, SELLERS_FILE)
+        self.products_file = os.path.join(self.data_folder, PRODUCTS_CACHE_FILE)
+        
+        # Données
+        self.subscriptions = {}  # Par guild_id
+        self.products_cache = {}  # Par seller_url
+        
+        # Scheduler
         self.next_check_time = None
-        self.delete_after = 10
-        self.backup_delay = 900
-        self.message_delay = 0.5
-
+        self.check_task = None
+        
+    async def setup_hook(self):
+        """Appelé au démarrage du bot."""
+        # Charger les données
+        self._load_data()
+        
+        # Ajouter les commandes
+        self.tree.add_command(sub_command)
+        self.tree.add_command(unsub_command)
+        self.tree.add_command(list_command)
+        self.tree.add_command(set_group)
+        self.tree.add_command(check_command)
+        
+        # Synchroniser les commandes
+        await self.tree.sync()
+        logger.info("Commandes slash synchronisées")
+        
+    def _load_data(self):
+        """Charge les données depuis les fichiers."""
+        os.makedirs(self.data_folder, exist_ok=True)
+        self.subscriptions = load_json(self.sellers_file)
+        self.products_cache = load_json(self.products_file)
+        logger.info(f"Chargé: {len(self.subscriptions)} guilds, {len(self.products_cache)} sellers en cache")
+        
+    def _save_data(self):
+        """Sauvegarde les données."""
+        save_json(self.sellers_file, self.subscriptions)
+        save_json(self.products_file, self.products_cache)
+        
+    def get_guild_config(self, guild_id: int) -> dict:
+        """Retourne la config d'un guild (ou crée une config par défaut)."""
+        guild_id_str = str(guild_id)
+        if guild_id_str not in self.subscriptions:
+            self.subscriptions[guild_id_str] = {
+                "sellers": [],
+                "timezone": DEFAULT_TIMEZONE,
+                "check_schedule": DEFAULT_CHECK_SCHEDULE.copy(),
+                "channels": {
+                    "new_products": None,
+                    "updated_products": None,
+                    "default": None
+                }
+            }
+        return self.subscriptions[guild_id_str]
+    
     async def on_ready(self):
-        logger.info(f'Logged in as {self.user}')
-        self.loop.create_task(self.set_daily_check())
-        self.loop.create_task(self.backup_loop())
-
-    def run_bot(self):
-        if not os.path.exists(self.data_folder):
-            logger.info(f"Creating data folder at {self.data_folder}")
-            os.makedirs(self.data_folder)
-
-        logger.info("Starting bot...")
-        self.run(self.token)
-
-    def _compose_header(self) -> str:
-        month_name = get_month_name()
-        if self.deadline_suffix:
-            return f"## {month_name} ассеты от эпиков ({self.deadline_suffix})\n"
-        return f"## {month_name} ассеты от эпиков\n"
-
-    async def _build_message_and_files(self, assets):
-        """Builds markdown message and downloads images using one ClientSession."""
-        message = self._compose_header()
-        files = []
-        async with aiohttp.ClientSession() as session:
-            for asset in assets:
-                message += f"- [{asset['name']}](<{asset['link']}>)\n"
-                img_url = asset.get('image')
-                if not img_url:
+        """Appelé quand le bot est prêt."""
+        logger.info(f"Connecté en tant que {self.user}")
+        
+        # Démarrer le scheduler
+        if self.check_task is None:
+            self.check_task = self.loop.create_task(self._schedule_loop())
+            
+    async def _schedule_loop(self):
+        """Boucle principale du scheduler."""
+        while True:
+            try:
+                # Calculer le prochain check
+                next_check = self._calculate_next_check()
+                if next_check:
+                    self.next_check_time = next_check
+                    wait_seconds = (next_check - datetime.now(ZoneInfo(DEFAULT_TIMEZONE))).total_seconds()
+                    
+                    if wait_seconds > 0:
+                        logger.info(f"Prochain check dans {wait_seconds/3600:.1f} heures")
+                        await asyncio.sleep(wait_seconds)
+                    
+                    # Exécuter le check
+                    await self._check_all_sellers()
+                else:
+                    # Pas de check configuré, attendre 1 heure
+                    await asyncio.sleep(3600)
+                    
+            except Exception as e:
+                logger.error(f"Erreur scheduler: {e}")
+                await asyncio.sleep(60)
+                
+    def _calculate_next_check(self) -> Optional[datetime]:
+        """Calcule la date du prochain check."""
+        # Prendre la config du premier guild avec un schedule
+        for config in self.subscriptions.values():
+            schedule = config.get("check_schedule", DEFAULT_CHECK_SCHEDULE)
+            tz = ZoneInfo(config.get("timezone", DEFAULT_TIMEZONE))
+            
+            now = datetime.now(tz)
+            target_weekday = WEEKDAYS.get(schedule.get("day", "sunday"), 6)
+            target_hour = schedule.get("hour", 0)
+            target_minute = schedule.get("minute", 0)
+            
+            # Calculer le prochain jour correspondant
+            days_ahead = target_weekday - now.weekday()
+            if days_ahead < 0:
+                days_ahead += 7
+            elif days_ahead == 0:
+                # Même jour, vérifier l'heure
+                if now.hour > target_hour or (now.hour == target_hour and now.minute >= target_minute):
+                    days_ahead = 7
+            
+            next_check = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            next_check += timedelta(days=days_ahead)
+            
+            return next_check
+            
+        return None
+    
+    async def _check_all_sellers(self):
+        """Vérifie tous les sellers de tous les guilds."""
+        logger.info("Début de la vérification de tous les sellers")
+        
+        all_sellers = set()
+        for config in self.subscriptions.values():
+            all_sellers.update(config.get("sellers", []))
+        
+        for seller_url in all_sellers:
+            try:
+                existing_products = self.products_cache.get(seller_url, {}).get("products", [])
+                
+                result = await scrape_seller_with_details(seller_url, existing_products)
+                
+                if result:
+                    # Mettre à jour le cache
+                    self.products_cache[seller_url] = {
+                        "last_check": datetime.now().isoformat(),
+                        "products": result["products"]
+                    }
+                    
+                    # Notifier les guilds abonnés
+                    changes = result["changes"]
+                    if changes["new"] or changes["updated"]:
+                        await self._notify_guilds(seller_url, changes)
+                    
+                self._save_data()
+                
+            except Exception as e:
+                logger.error(f"Erreur vérification {seller_url}: {e}")
+                
+        logger.info("Vérification terminée")
+        
+    async def _notify_guilds(self, seller_url: str, changes: dict):
+        """Notifie tous les guilds abonnés à un seller."""
+        seller_name = extract_seller_name(seller_url)
+        
+        for guild_id_str, config in self.subscriptions.items():
+            if seller_url not in config.get("sellers", []):
+                continue
+                
+            try:
+                guild = self.get_guild(int(guild_id_str))
+                if not guild:
                     continue
-                try:
-                    async with session.get(img_url, timeout=30) as resp:
-                        image_data = await resp.read()
-                    # Sanitize filename a bit
-                    safe_name = re.sub(r'[\\/*?:"<>|]+', "_", asset['name'])[:100] or "image"
-                    files.append(discord.File(BytesIO(image_data), filename=f"{safe_name}.png"))
-                except Exception as e:
-                    logger.warning(f"Image fetch failed for {asset['link']}: {e}")
-        return message, files
+                
+                channels = config.get("channels", {})
+                
+                # Nouveaux produits
+                for product in changes.get("new", []):
+                    channel_id = channels.get("new_products") or channels.get("default")
+                    if channel_id:
+                        channel = guild.get_channel(channel_id)
+                        if channel:
+                            embed = self._create_product_embed(product, is_new=True, seller_name=seller_name)
+                            await channel.send(embed=embed)
+                            await asyncio.sleep(0.5)
+                
+                # Produits mis à jour
+                for product in changes.get("updated", []):
+                    channel_id = channels.get("updated_products") or channels.get("default")
+                    if channel_id:
+                        channel = guild.get_channel(channel_id)
+                        if channel:
+                            embed = self._create_product_embed(product, is_new=False, seller_name=seller_name)
+                            await channel.send(embed=embed)
+                            await asyncio.sleep(0.5)
+                            
+            except Exception as e:
+                logger.error(f"Erreur notification guild {guild_id_str}: {e}")
+    
+    def _create_product_embed(self, product: dict, is_new: bool, seller_name: str = None) -> discord.Embed:
+        """Crée un embed Discord pour un produit."""
+        title = MESSAGES["new_product"] if is_new else MESSAGES["updated_product"]
+        color = COLOR_NEW_PRODUCT if is_new else COLOR_UPDATED_PRODUCT
+        
+        embed = discord.Embed(
+            title=f"{title}: {product['name']}",
+            url=product.get("url"),
+            color=color,
+            timestamp=datetime.now()
+        )
+        
+        # Prix
+        embed.add_field(name="💰 Prix", value=product.get("price", "N/A"), inline=True)
+        
+        # Seller
+        if seller_name:
+            embed.add_field(name="🏪 Seller", value=seller_name, inline=True)
+        
+        # Last update
+        if product.get("last_update"):
+            embed.add_field(name="📅 Dernière MAJ", value=product["last_update"], inline=True)
+        
+        # Si c'est une mise à jour, montrer le changement
+        if not is_new:
+            if product.get("previous_update"):
+                embed.add_field(
+                    name="📝 Changement",
+                    value=f"MAJ: {product['previous_update']} → {product.get('last_update', 'Maintenant')}",
+                    inline=False
+                )
+            elif product.get("previous_price"):
+                embed.add_field(
+                    name="📝 Changement",
+                    value=f"Prix: {product['previous_price']} → {product.get('price')}",
+                    inline=False
+                )
+        
+        # Description courte
+        if product.get("description"):
+            desc = product["description"][:200]
+            if len(product["description"]) > 200:
+                desc += "..."
+            embed.add_field(name="📄 Description", value=desc, inline=False)
+        
+        # Image
+        if product.get("image"):
+            embed.set_thumbnail(url=product["image"])
+        
+        # Footer
+        embed.set_footer(text="Fab Seller Tracker")
+        
+        return embed
 
-    def add_commands(self):
-        @self.command(name='sub')
-        async def subscribe(ctx: commands.Context):
-            if not is_admin(ctx) and not is_dm(ctx):
-                await ctx.send("You do not have the necessary permissions to run this command.")
-                return
 
-            if is_dm(ctx):
-                user_id = ctx.author.id
-                if any(user['id'] == user_id for user in self.subscribed_users):
-                    await ctx.send("You are already subscribed.")
-                    return
-                self.subscribed_users.append({'id': user_id, 'shown_assets': False})
-                await ctx.send("Subscribed to asset updates")
-                logger.info(f"User {ctx.author} subscribed to asset updates.")
+# ============================================================================
+# Slash Commands
+# ============================================================================
 
-                if self.assets_list and not self.subscribed_users[-1]['shown_assets']:
-                    message, files = await self._build_message_and_files(self.assets_list)
-                    user = await self.fetch_user(user_id)
-                    await user.send(message, files=files)
-                    self.subscribed_users[-1]['shown_assets'] = True
+bot = FabSellerTrackerBot()
 
-            else:
-                channel_id = ctx.channel.id
-                if any(channel['id'] == channel_id for channel in self.subscribed_channels):
-                    await ctx.send("This channel is already subscribed.")
-                    return
-                self.subscribed_channels.append({'id': channel_id, 'shown_assets': False})
-                await ctx.send(f"Subscribed to asset updates in: {ctx.channel.name}")
-                logger.info(f"Channel {ctx.channel.name} subscribed to asset updates.")
 
-                if self.assets_list and not self.subscribed_channels[-1]['shown_assets']:
-                    message, files = await self._build_message_and_files(self.assets_list)
-                    channel = self.get_channel(channel_id)
-                    await channel.send(message, files=files)
-                    self.subscribed_channels[-1]['shown_assets'] = True
+@app_commands.command(name="sub", description="S'abonner aux produits d'un seller Fab.com")
+@app_commands.describe(seller_url="URL du seller (ex: https://fab.com/sellers/GameAssetFactory)")
+async def sub_command(interaction: discord.Interaction, seller_url: str):
+    """Commande /sub pour s'abonner à un seller."""
+    if not interaction.guild:
+        await interaction.response.send_message("❌ Cette commande ne peut être utilisée que dans un serveur.")
+        return
+    
+    # Vérifier les permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(MESSAGES["permission_denied"], ephemeral=True)
+        return
+    
+    # Normaliser l'URL
+    normalized_url = normalize_seller_url(seller_url)
+    if not normalized_url:
+        await interaction.response.send_message(MESSAGES["sub_invalid_url"], ephemeral=True)
+        return
+    
+    # Ajouter le seller
+    config = bot.get_guild_config(interaction.guild.id)
+    
+    if normalized_url in config["sellers"]:
+        await interaction.response.send_message(MESSAGES["sub_already"], ephemeral=True)
+        return
+    
+    config["sellers"].append(normalized_url)
+    
+    # Définir le canal par défaut si pas encore configuré
+    if config["channels"]["default"] is None:
+        config["channels"]["default"] = interaction.channel.id
+    
+    bot._save_data()
+    
+    seller_name = extract_seller_name(normalized_url)
+    await interaction.response.send_message(
+        MESSAGES["sub_success"].format(seller=seller_name)
+    )
 
-        @self.command(name='unsub')
-        async def unsubscribe(ctx: commands.Context):
-            if not is_admin(ctx) and not is_dm(ctx):
-                await ctx.send("You do not have the necessary permissions to run this command.")
-                return
 
-            if is_dm(ctx):
-                user_id = ctx.author.id
-                for user in self.subscribed_users:
-                    if user['id'] == user_id:
-                        self.subscribed_users.remove(user)
-                        await ctx.send("Unsubscribed from asset updates.")
-                        logger.info(f"User {ctx.author} unsubscribed from asset updates.")
-                        return
-                await ctx.send("You are not subscribed.")
-            else:
-                channel_id = ctx.channel.id
-                for channel in self.subscribed_channels:
-                    if channel['id'] == channel_id:
-                        self.subscribed_channels.remove(channel)
-                        await ctx.send("Unsubscribed from asset updates.")
-                        logger.info(f"Channel {ctx.channel.name} unsubscribed from asset updates.")
-                        return
-                await ctx.send("This channel is not subscribed.")
+@app_commands.command(name="unsub", description="Se désabonner d'un seller Fab.com")
+@app_commands.describe(seller_url="URL du seller à retirer")
+async def unsub_command(interaction: discord.Interaction, seller_url: str):
+    """Commande /unsub pour se désabonner."""
+    if not interaction.guild:
+        await interaction.response.send_message("❌ Cette commande ne peut être utilisée que dans un serveur.")
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(MESSAGES["permission_denied"], ephemeral=True)
+        return
+    
+    normalized_url = normalize_seller_url(seller_url)
+    config = bot.get_guild_config(interaction.guild.id)
+    
+    if normalized_url not in config["sellers"]:
+        await interaction.response.send_message(MESSAGES["unsub_not_found"], ephemeral=True)
+        return
+    
+    config["sellers"].remove(normalized_url)
+    bot._save_data()
+    
+    seller_name = extract_seller_name(normalized_url)
+    await interaction.response.send_message(
+        MESSAGES["unsub_success"].format(seller=seller_name)
+    )
 
-        @self.command(name='time')
-        async def time_left(ctx: commands.Context):
-            if self.next_check_time:
-                now = datetime.now()
-                time_remaining = self.next_check_time - now
-                hours, remainder = divmod(time_remaining.seconds, 3600)
-                minutes, seconds = divmod(remainder, 60)
-                message = (f"Time left until next check: {hours:02}:{minutes:02}:{seconds:02}\n"
-                           f"-# This message will be deleted after {self.delete_after} seconds")
-                sent_message = await ctx.send(message)
-                await asyncio.sleep(self.delete_after)
-                await sent_message.delete()
-            else:
-                message = (f"No scheduled check found.\n"
-                           f"-# This message will be deleted after {self.delete_after} seconds")
-                sent_message = await ctx.send(message)
-                await asyncio.sleep(self.delete_after)
-                await sent_message.delete()
 
-        @subscribe.error
-        @unsubscribe.error
-        async def on_command_error(ctx: commands.Context, error: commands.CommandError):
-            if isinstance(error, commands.MissingPermissions):
-                await ctx.send("You do not have the necessary permissions to run this command.")
+@app_commands.command(name="list", description="Lister les sellers suivis")
+async def list_command(interaction: discord.Interaction):
+    """Commande /list pour voir les sellers suivis."""
+    if not interaction.guild:
+        await interaction.response.send_message("❌ Cette commande ne peut être utilisée que dans un serveur.")
+        return
+    
+    config = bot.get_guild_config(interaction.guild.id)
+    sellers = config.get("sellers", [])
+    
+    if not sellers:
+        await interaction.response.send_message(MESSAGES["list_empty"])
+        return
+    
+    embed = discord.Embed(
+        title="📋 Sellers suivis",
+        color=COLOR_INFO
+    )
+    
+    for seller_url in sellers:
+        seller_name = extract_seller_name(seller_url)
+        cache = bot.products_cache.get(seller_url, {})
+        products_count = len(cache.get("products", []))
+        last_check = cache.get("last_check", "Jamais")
+        
+        embed.add_field(
+            name=seller_name,
+            value=f"Produits: {products_count}\nDernier check: {last_check[:10] if last_check != 'Jamais' else last_check}",
+            inline=True
+        )
+    
+    # Ajouter infos du schedule
+    schedule = config.get("check_schedule", DEFAULT_CHECK_SCHEDULE)
+    tz = config.get("timezone", DEFAULT_TIMEZONE)
+    embed.set_footer(text=f"Vérification: {schedule.get('day')} à {schedule.get('hour'):02d}:{schedule.get('minute'):02d} ({tz})")
+    
+    await interaction.response.send_message(embed=embed)
 
-    async def set_daily_check(self):
-        while True:
-            self.next_check_time = datetime.now() + timedelta(days=1)
-            await self.check_and_notify_assets()
-            await asyncio.sleep(24 * 60 * 60)
 
-    async def check_and_notify_assets(self):
-        assets, deadline = await get_free_assets()
-        if not assets:
-            return
+# Groupe de commandes /set
+set_group = app_commands.Group(name="set", description="Configurer le bot")
 
-        def ids(lst):
-            return {a['link'] for a in (lst or [])}
 
-        new_ids = ids(assets)
-        old_ids = ids(self.assets_list)
-        deadline = deadline or ""
-        deadline_changed = (deadline != (self.deadline_suffix or ""))
+@set_group.command(name="timezone", description="Configurer le fuseau horaire")
+@app_commands.describe(timezone="Fuseau horaire (ex: Europe/Paris)")
+async def set_timezone(interaction: discord.Interaction, timezone: str):
+    """Commande /set timezone."""
+    if not interaction.guild:
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(MESSAGES["permission_denied"], ephemeral=True)
+        return
+    
+    # Valider le timezone
+    try:
+        ZoneInfo(timezone)
+    except Exception:
+        await interaction.response.send_message(
+            f"❌ Fuseau horaire invalide. Exemples: Europe/Paris, America/New_York, UTC",
+            ephemeral=True
+        )
+        return
+    
+    config = bot.get_guild_config(interaction.guild.id)
+    config["timezone"] = timezone
+    bot._save_data()
+    
+    await interaction.response.send_message(
+        MESSAGES["set_timezone_success"].format(timezone=timezone)
+    )
 
-        added = new_ids - old_ids
 
-        # Ignore shrink-only change (when the new set is a strict subset and no new links appeared)
-        if not deadline_changed and not added and new_ids.issubset(old_ids) and new_ids != old_ids:
-            logger.warning("Shrink-only change detected — likely transient scrape issue. Skipping update.")
-            return
+@set_group.command(name="checkdate", description="Configurer le jour et l'heure de vérification")
+@app_commands.describe(
+    day="Jour de la semaine (monday, tuesday, wednesday, thursday, friday, saturday, sunday)",
+    hour="Heure (0-23)",
+    minute="Minute (0-59)"
+)
+@app_commands.choices(day=[
+    app_commands.Choice(name="Lundi", value="monday"),
+    app_commands.Choice(name="Mardi", value="tuesday"),
+    app_commands.Choice(name="Mercredi", value="wednesday"),
+    app_commands.Choice(name="Jeudi", value="thursday"),
+    app_commands.Choice(name="Vendredi", value="friday"),
+    app_commands.Choice(name="Samedi", value="saturday"),
+    app_commands.Choice(name="Dimanche", value="sunday"),
+])
+async def set_checkdate(interaction: discord.Interaction, day: str, hour: int, minute: int = 0):
+    """Commande /set checkdate."""
+    if not interaction.guild:
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(MESSAGES["permission_denied"], ephemeral=True)
+        return
+    
+    if hour < 0 or hour > 23:
+        await interaction.response.send_message("❌ L'heure doit être entre 0 et 23", ephemeral=True)
+        return
+    
+    if minute < 0 or minute > 59:
+        await interaction.response.send_message("❌ Les minutes doivent être entre 0 et 59", ephemeral=True)
+        return
+    
+    config = bot.get_guild_config(interaction.guild.id)
+    config["check_schedule"] = {
+        "day": day,
+        "hour": hour,
+        "minute": minute
+    }
+    bot._save_data()
+    
+    await interaction.response.send_message(
+        MESSAGES["set_schedule_success"].format(day=day, hour=hour, minute=minute)
+    )
 
-        # If nothing changed and no new deadline — do nothing
-        if not deadline_changed and new_ids == old_ids:
-            return
 
-        # Update state & notify
-        self.assets_list = assets
-        self.deadline_suffix = deadline
+@set_group.command(name="channel", description="Configurer le canal de notifications")
+@app_commands.describe(
+    notification_type="Type de notification",
+    channel="Canal pour les notifications"
+)
+@app_commands.choices(notification_type=[
+    app_commands.Choice(name="Nouveaux produits", value="new_products"),
+    app_commands.Choice(name="Produits mis à jour", value="updated_products"),
+])
+async def set_channel(interaction: discord.Interaction, notification_type: str, channel: discord.TextChannel):
+    """Commande /set channel."""
+    if not interaction.guild:
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(MESSAGES["permission_denied"], ephemeral=True)
+        return
+    
+    config = bot.get_guild_config(interaction.guild.id)
+    config["channels"][notification_type] = channel.id
+    bot._save_data()
+    
+    type_label = "nouveaux produits" if notification_type == "new_products" else "produits mis à jour"
+    await interaction.response.send_message(
+        MESSAGES["set_channel_success"].format(type=type_label, channel=channel.mention)
+    )
 
-        message, files = await self._build_message_and_files(assets)
 
-        for channel in self.subscribed_channels:
-            channel_obj = self.get_channel(channel['id'])
-            if channel_obj:
-                await channel_obj.send(message, files=files)
-                channel['shown_assets'] = True
-            await asyncio.sleep(self.message_delay)
+@app_commands.command(name="check", description="Forcer une vérification immédiate (admin)")
+async def check_command(interaction: discord.Interaction):
+    """Commande /check pour forcer un check."""
+    if not interaction.guild:
+        return
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(MESSAGES["permission_denied"], ephemeral=True)
+        return
+    
+    config = bot.get_guild_config(interaction.guild.id)
+    sellers = config.get("sellers", [])
+    
+    if not sellers:
+        await interaction.response.send_message(MESSAGES["list_empty"])
+        return
+    
+    await interaction.response.send_message(MESSAGES["check_started"])
+    
+    total_new = 0
+    total_updated = 0
+    
+    for seller_url in sellers:
+        try:
+            existing_products = bot.products_cache.get(seller_url, {}).get("products", [])
+            result = await scrape_seller_with_details(seller_url, existing_products)
+            
+            if result:
+                bot.products_cache[seller_url] = {
+                    "last_check": datetime.now().isoformat(),
+                    "products": result["products"]
+                }
+                
+                changes = result["changes"]
+                total_new += len(changes.get("new", []))
+                total_updated += len(changes.get("updated", []))
+                
+                # Notifier
+                if changes["new"] or changes["updated"]:
+                    await bot._notify_guilds(seller_url, changes)
+                    
+        except Exception as e:
+            logger.error(f"Erreur check {seller_url}: {e}")
+    
+    bot._save_data()
+    
+    if total_new == 0 and total_updated == 0:
+        await interaction.followup.send(MESSAGES["check_no_changes"])
+    else:
+        await interaction.followup.send(
+            MESSAGES["check_complete"].format(new=total_new, updated=total_updated)
+        )
 
-        for user in self.subscribed_users:
-            user_obj = await self.fetch_user(user['id'])
-            if user_obj:
-                try:
-                    await user_obj.send(message, files=files)
-                    user['shown_assets'] = True
-                except Exception as e:
-                    logger.warning(f"DM failed for {user['id']}: {e}")
-            await asyncio.sleep(self.message_delay)
 
-        await self.backup_data()
-
-    async def backup_loop(self):
-        while True:
-            await self.backup_data()
-            await asyncio.sleep(self.backup_delay)
-
-    async def backup_data(self):
-        with open(os.path.join(self.data_folder, 'subscribers_channels_backup.json'), 'w') as f:
-            json.dump(self.subscribed_channels, f)
-            logger.info(f"Saved {len(self.subscribed_channels)} subscribed channels to backup.")
-        with open(os.path.join(self.data_folder, 'subscribers_users_backup.json'), 'w') as f:
-            json.dump(self.subscribed_users, f)
-            logger.info(f"Saved {len(self.subscribed_users)} subscribed users to backup.")
-        with open(os.path.join(self.data_folder, 'assets_backup.json'), 'w') as f:
-            json.dump(self.assets_list, f)
-            logger.info(f"Saved {len(self.assets_list) if self.assets_list else 0} assets to backup.")
-        with open(os.path.join(self.data_folder, 'deadline_backup.json'), 'w') as f:
-            json.dump(self.deadline_suffix, f)
-            logger.info("Saved deadline suffix to backup.")
-
+# ============================================================================
+# Point d'entrée
+# ============================================================================
 
 if __name__ == '__main__':
-    TOKEN = os.environ["ASSETS_BOT_TOKEN"]
-    COMMAND_PREFIX = '/assets '
-
-    bot = EpicAssetsNotifyBot(command_prefix=COMMAND_PREFIX, token=TOKEN)
-    bot.run_bot()
+    if not TOKEN:
+        logger.error("ASSETS_BOT_TOKEN non défini!")
+        exit(1)
+    
+    logger.info("Démarrage du bot Fab Seller Tracker...")
+    bot.run(TOKEN)
