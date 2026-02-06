@@ -39,13 +39,7 @@ python -m playwright install firefox
 **Windows:**
 
 ```cmd
-set ASSETS_BOT_TOKEN=your_discord_token
-```
-
-**Linux/Mac:**
-
-```bash
-export ASSETS_BOT_TOKEN=your_discord_token
+in the config.py file
 ```
 
 ### 5. Run the bot
