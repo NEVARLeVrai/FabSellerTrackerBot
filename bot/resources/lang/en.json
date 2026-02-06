@@ -107,5 +107,25 @@
   "type_updated_products": "Updated Products",
   "bot_name": "Fab Seller Tracker Bot",
   "developer_name": "NEVAR",
-  "platform_name": "Fab.com"
+  "platform_name": "Fab.com",
+  
+  "cmd_check_now_desc": "Force an immediate check for all sellers",
+  "cmd_check_config_desc": "View server configuration and settings",
+  "config_title": "⚙️ Server Configuration",
+  "config_general": "General Settings",
+  "config_notifications": "Notifications",
+  "config_schedule": "Schedule",
+  "config_sellers": "Tracked Sellers",
+  "config_timezone": "Timezone",
+  "config_language": "Language",
+  "config_currency": "Currency",
+  "config_channel_new": "New Products",
+  "config_channel_updated": "Updates",
+  "config_mentions": "Mentions",
+  "config_not_set": "Not Set",
+  "config_count": "{count} sellers tracked",
+  "config_mentions_count": "{new} roles for new, {upd} roles for updates",
+  "config_roles_new": "Roles (New)",
+  "config_roles_upd": "Roles (Updated)",
+  "config_seller_list": "Tracked Sellers"
 }

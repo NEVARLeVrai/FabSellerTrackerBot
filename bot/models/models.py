@@ -24,6 +24,10 @@ class Product:
 
     @classmethod
     def from_dict(cls, data: dict):
+        # Defensive check: if it's already a Product instance, return it
+        if isinstance(data, cls):
+            return data
+            
         # Handle cases where price might still be a string (migration)
         price = data.get("price", {})
         if isinstance(price, str):

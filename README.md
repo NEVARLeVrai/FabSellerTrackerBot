@@ -74,7 +74,8 @@ _(Or manually: `python run.py`)_
 | `/set mention_role <type> <role> <action>` | Add/remove roles to mention            |
 | `/set create_roles`                        | Auto-create default notification roles |
 | `/info`                                    | View bot version and changelog         |
-| `/check`                                   | Force immediate check (Admin only)     |
+| `/check now`                               | Force immediate check (Admin only)     |
+| `/check config`                            | View server configuration (Admin only) |
 
 ## 📁 Project Structure
 
@@ -105,6 +106,8 @@ _(Or manually: `python run.py`)_
 /set channel new_products #news
 /set language fr
 /set currency EUR
+/check config
+/check now
 ```
 
 ## 📜 License

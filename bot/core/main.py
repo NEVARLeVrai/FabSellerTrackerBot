@@ -103,7 +103,7 @@ class FabSellerTrackerBot(commands.Bot):
         self.tree.add_command(list_command)
         self.tree.add_command(set_group)
         self.tree.add_command(info_command)
-        self.tree.add_command(check_command)
+        self.tree.add_command(check_group)
         
         # Sync commands
         await self.tree.sync()
@@ -243,7 +243,7 @@ class FabSellerTrackerBot(commands.Bot):
                     self.db.update_seller_status(seller_url, "success")
                     
                     # Convert to Product objects and save
-                    new_products = [Product.from_dict(p) for p in result["products"]]
+                    new_products = result["products"]
                     self.db.save_products(new_products)
                     
                     # Notify subscribed guilds
@@ -874,10 +874,14 @@ async def create_roles_command(interaction: discord.Interaction):
         await interaction.followup.send(t("set_create_roles_already", lang))
 
 
-@app_commands.command(name="check", description="Force immediate check (admin)")
-async def check_command(interaction: discord.Interaction):
-    """Command /check to force a check."""
+# Group /check commands
+check_group = app_commands.Group(name="check", description="Verification commands")
+
+@check_group.command(name="now", description="Force an immediate check for all sellers")
+async def check_now(interaction: discord.Interaction):
+    """Command /check now to force an immediate check."""
     if not interaction.guild:
+        await interaction.response.send_message(t("error_only_in_guild"))
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
@@ -922,7 +926,7 @@ async def check_command(interaction: discord.Interaction):
                 bot.db.update_seller_status(seller_url, "success")
                 
                 # Convert to objects and save
-                prods = [Product.from_dict(p) for p in result["products"]]
+                prods = result["products"]
                 bot.db.save_products(prods)
                 
                 changes = result["changes"]
@@ -956,3 +960,68 @@ async def check_command(interaction: discord.Interaction):
         await interaction.followup.send(t("check_no_changes", lang))
     else:
         await interaction.followup.send(t("check_complete", lang, new=total_new, updated=total_updated))
+
+
+@check_group.command(name="config", description="View server configuration and settings")
+async def check_config(interaction: discord.Interaction):
+    """Command /check config to see DB settings."""
+    if not interaction.guild:
+        await interaction.response.send_message(t("error_only_in_guild"))
+        return
+    
+    lang = bot.get_guild_lang(interaction.guild.id)
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
+        return
+        
+    config = bot.get_guild_config_obj(interaction.guild.id)
+    
+    embed = discord.Embed(
+        title=t("config_title", lang),
+        color=COLOR_INFO,
+        timestamp=datetime.now()
+    )
+    
+    # General Settings
+    gen_val = (
+        f"**{t('config_timezone', lang)}**: {config.timezone}\n"
+        f"**{t('config_language', lang)}**: {get_language_name(config.language)} ({config.language})\n"
+        f"**{t('config_currency', lang)}**: {config.currency}"
+    )
+    embed.add_field(name=f"📋 {t('config_general', lang)}", value=gen_val, inline=False)
+    
+    # Notifications
+    def get_ch_mention(cid):
+        return f"<#{cid}>" if cid else f"*{t('config_not_set', lang)}*"
+        
+    notif_val = (
+        f"**{t('config_channel_new', lang)}**: {get_ch_mention(config.channel_new)}\n"
+        f"**{t('config_channel_updated', lang)}**: {get_ch_mention(config.channel_updated)}\n"
+        f"**{t('config_mentions', lang)}**: {'✅' if config.mentions_enabled else '❌'}\n"
+    )
+    
+    # Roles detail
+    roles_new = [f"<@&{rid}>" for rid in config.mentions_new]
+    roles_upd = [f"<@&{rid}>" for rid in config.mentions_updated]
+    
+    notif_val += f"↳ **{t('config_roles_new', lang)}**: {', '.join(roles_new) if roles_new else t('none', lang)}\n"
+    notif_val += f"↳ **{t('config_roles_upd', lang)}**: {', '.join(roles_upd) if roles_upd else t('none', lang)}"
+    
+    embed.add_field(name=f"🔔 {t('config_notifications', lang)}", value=notif_val, inline=False)
+    
+    # Schedule
+    time_str = f"{config.schedule_hour:02d}:{config.schedule_minute:02d}"
+    day_name = t(f"day_{config.schedule_day}", lang)
+    sched_val = f"{day_name} @ {time_str} ({config.timezone})"
+    embed.add_field(name=f"🕒 {t('config_schedule', lang)}", value=sched_val, inline=True)
+    
+    # Sellers
+    seller_names = [url.split("/sellers/")[-1].rstrip("/") for url in config.sellers]
+    sellers_val = f"**{t('config_count', lang, count=len(config.sellers))}**\n"
+    if seller_names:
+        sellers_val += f"↳ {', '.join(seller_names)}"
+    
+    embed.add_field(name=f"🏪 {t('config_seller_list', lang)}", value=sellers_val, inline=False)
+    
+    embed.set_footer(text=f"Server ID: {interaction.guild.id}")
+    await interaction.response.send_message(embed=embed)
