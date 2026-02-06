@@ -43,7 +43,7 @@ Update the path in `token_file` within `bot/config.py`.
 The bot will automatically check and install missing dependencies on the first run.
 
 **Windows:**
-Double-click on `Run Bot.bat`
+Double-click on `run_bot.bat`
 
 **Linux / Mac:**
 

@@ -67,13 +67,28 @@ def check_playwright():
         return # Playwright not installed yet (should be caught by check_requirements)
         
     # Simple check to see if we can launch a browser
-    # Note: This is an expensive check, so we might skip it or just handle the error at runtime.
-    # Instead, let's just use the command line check if possible, or just rely on the main error handler.
-    pass
+    print("Checking Playwright browsers...")
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            try:
+                browser = p.firefox.launch(headless=True)
+                browser.close()
+                print("Playwright browsers are ready.")
+            except Exception as e:
+                # If launch fails, install browsers
+                print(f"Browser check failed ({e}). Installing Firefox...")
+                subprocess.check_call([sys.executable, "-m", "playwright", "install", "firefox"])
+                print("Playwright browsers installed successfully.")
+    except Exception as e:
+        print(f"Warning: Failed to check Playwright: {e}")
 
 if __name__ == '__main__':
     # Check dependencies first
     check_requirements()
+    
+    # Check Playwright browsers
+    check_playwright()
     
     # Import bot after checks and Install
     try:
