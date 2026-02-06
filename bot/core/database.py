@@ -80,9 +80,15 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS seller_cache (
                     seller_url TEXT PRIMARY KEY,
                     last_check TEXT,
-                    last_status TEXT
+                    last_status TEXT,
+                    product_count INTEGER DEFAULT 0
                 )
             """)
+            
+            # Migration: add product_count column if missing
+            cache_columns = [col[1] for col in conn.execute("PRAGMA table_info(seller_cache)").fetchall()]
+            if 'product_count' not in cache_columns:
+                conn.execute("ALTER TABLE seller_cache ADD COLUMN product_count INTEGER DEFAULT 0")
             
             conn.commit()
 
@@ -228,11 +234,20 @@ class DatabaseManager:
             conn.execute("INSERT OR REPLACE INTO guilds (guild_id, currency) VALUES ('GLOBAL', ?)", (currency,))
             conn.commit()
 
-    def update_seller_status(self, seller_url: str, status: str):
-        """Updates the status and last check timestamp for a seller."""
+    def update_seller_status(self, seller_url: str, status: str, product_count: int = None):
+        """Updates the status, last check timestamp and product count for a seller."""
         with self._get_connection() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status)
-                VALUES (?, ?, ?)
-            """, (seller_url, datetime.now().isoformat(), status))
+            if product_count is not None:
+                conn.execute("""
+                    INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status, product_count)
+                    VALUES (?, ?, ?, ?)
+                """, (seller_url, datetime.now().isoformat(), status, product_count))
+            else:
+                # Keep existing product_count if not provided
+                existing = conn.execute("SELECT product_count FROM seller_cache WHERE seller_url = ?", (seller_url,)).fetchone()
+                old_count = existing['product_count'] if existing and existing['product_count'] else 0
+                conn.execute("""
+                    INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status, product_count)
+                    VALUES (?, ?, ?, ?)
+                """, (seller_url, datetime.now().isoformat(), status, old_count))
             conn.commit()

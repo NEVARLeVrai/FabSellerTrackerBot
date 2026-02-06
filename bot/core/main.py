@@ -287,7 +287,8 @@ class FabSellerTrackerBot(commands.Bot):
                     result = await scrape_seller_with_details(seller_url, existing_products, currency=currency)
                     
                     if result:
-                        self.db.update_seller_status(seller_url, "success")
+                        products_count = len(result["products"])
+                        self.db.update_seller_status(seller_url, "success", product_count=products_count)
                         self.db.save_products(result["products"], seller_url=seller_url)
                         
                         changes = result["changes"]
@@ -573,17 +574,15 @@ async def list_command(interaction: discord.Interaction):
             seller_name = extract_seller_name(seller_url)
             # Fetch cache status
             cache = conn.execute("SELECT * FROM seller_cache WHERE seller_url = ?", (seller_url,)).fetchone()
-            # Count products (approximate by URL or just ID count if we had it)
-            # For now, let's just show status.
             last_check = cache['last_check'] if cache and cache['last_check'] else t("list_never", lang)
             last_status = cache['last_status'] if cache else "unknown"
+            product_count = cache['product_count'] if cache and cache['product_count'] else 0
             
             status_icon = "✅" if last_status == "success" else "❌" if last_status == "error" else "❓"
             
             embed.add_field(
                 name=seller_name,
-                # Note: products_count removed as it's harder to count without seller -> products relation in DB
-                value=t("list_products_detail", lang, count="?", check=last_check[:10] if 'T' in str(last_check) else last_check, icon=status_icon),
+                value=t("list_products_detail", lang, count=product_count, check=last_check[:10] if 'T' in str(last_check) else last_check, icon=status_icon),
                 inline=True
             )
     
@@ -1010,7 +1009,7 @@ async def check_now(interaction: discord.Interaction):
                     products_count = len(result["products"])
                     
                     # Save status
-                    bot.db.update_seller_status(seller_url, "success")
+                    bot.db.update_seller_status(seller_url, "success", product_count=products_count)
                     
                     # Convert to objects and save
                     prods = result["products"]
@@ -1108,8 +1107,14 @@ async def check_config(interaction: discord.Interaction):
     
     # Schedule
     time_str = f"{config.schedule_hour:02d}:{config.schedule_minute:02d}"
-    day_name = t(f"day_{config.schedule_day}", lang)
-    sched_val = f"{day_name} @ {time_str} ({config.timezone})"
+    freq = config.schedule_frequency.capitalize() if config.schedule_frequency else "Weekly"
+    if config.schedule_frequency == "daily":
+        sched_val = f"{freq} @ {time_str} ({config.timezone})"
+    elif config.schedule_frequency == "monthly":
+        sched_val = f"{freq} ({config.schedule_day}) @ {time_str} ({config.timezone})"
+    else:  # weekly
+        day_name = t(f"day_{config.schedule_day}", lang)
+        sched_val = f"{freq} ({day_name}) @ {time_str} ({config.timezone})"
     embed.add_field(name=f"🕒 {t('config_schedule', lang)}", value=sched_val, inline=True)
     
     # Sellers
