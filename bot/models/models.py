@@ -69,3 +69,4 @@ class GuildConfig:
     schedule_day: str = "sunday"
     schedule_hour: int = 0
     schedule_minute: int = 0
+    schedule_frequency: str = "weekly" # daily, weekly, monthly

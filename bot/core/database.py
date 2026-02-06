@@ -34,7 +34,8 @@ class DatabaseManager:
                     mentions_updated TEXT, -- JSON list
                     schedule_day TEXT DEFAULT 'sunday',
                     schedule_hour INTEGER DEFAULT 0,
-                    schedule_minute INTEGER DEFAULT 0
+                    schedule_minute INTEGER DEFAULT 0,
+                    schedule_frequency TEXT DEFAULT 'weekly'
                 )
             """)
             
@@ -107,7 +108,8 @@ class DatabaseManager:
                 mentions_updated=json.loads(row['mentions_updated'] or '[]'),
                 schedule_day=row['schedule_day'],
                 schedule_hour=row['schedule_hour'],
-                schedule_minute=row['schedule_minute']
+                schedule_minute=row['schedule_minute'],
+                schedule_frequency=row['schedule_frequency'] if 'schedule_frequency' in row.keys() else 'weekly'
             )
 
     def get_all_guilds(self) -> List[GuildConfig]:
@@ -128,7 +130,8 @@ class DatabaseManager:
                     mentions_updated=json.loads(row['mentions_updated'] or '[]'),
                     schedule_day=row['schedule_day'],
                     schedule_hour=row['schedule_hour'],
-                    schedule_minute=row['schedule_minute']
+                    schedule_minute=row['schedule_minute'],
+                    schedule_frequency=row['schedule_frequency'] if 'schedule_frequency' in row.keys() else 'weekly'
                 )
                 guilds.append(g)
             return guilds
@@ -138,13 +141,13 @@ class DatabaseManager:
             conn.execute("""
                 INSERT OR REPLACE INTO guilds 
                 (guild_id, timezone, language, currency, channel_new, channel_updated, 
-                 mentions_enabled, mentions_new, mentions_updated, schedule_day, schedule_hour, schedule_minute)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 mentions_enabled, mentions_new, mentions_updated, schedule_day, schedule_hour, schedule_minute, schedule_frequency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 config.guild_id, config.timezone, config.language, config.currency,
                 config.channel_new, config.channel_updated, int(config.mentions_enabled),
                 json.dumps(config.mentions_new), json.dumps(config.mentions_updated),
-                config.schedule_day, config.schedule_hour, config.schedule_minute
+                config.schedule_day, config.schedule_hour, config.schedule_minute, config.schedule_frequency
             ))
             
             # Sync subscriptions

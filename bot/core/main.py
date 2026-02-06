@@ -186,7 +186,7 @@ class FabSellerTrackerBot(commands.Bot):
                 await asyncio.sleep(60)
                 
     def _calculate_next_check(self) -> Optional[datetime]:
-        """Calculates next check date based on all configured schedules."""
+        """Calculates next check date based on all configured schedules and frequencies."""
         guilds = self.db.get_all_guilds()
         
         if not guilds:
@@ -197,20 +197,57 @@ class FabSellerTrackerBot(commands.Bot):
             tz = ZoneInfo(config.timezone or DEFAULT_TIMEZONE)
             now = datetime.now(tz)
             
-            target_weekday = WEEKDAYS.get(config.schedule_day or "sunday", 6)
+            freq = config.schedule_frequency or "weekly"
             target_hour = config.schedule_hour or 0
             target_minute = config.schedule_minute or 0
             
-            days_ahead = target_weekday - now.weekday()
-            if days_ahead < 0:
-                days_ahead += 7
-            elif days_ahead == 0:
-                if now.hour > target_hour or (now.hour == target_hour and now.minute >= target_minute):
-                    days_ahead = 7
-            
-            check_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-            check_dt += timedelta(days=days_ahead)
-            next_checks.append(check_dt)
+            if freq == "daily":
+                check_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+                if check_dt <= now:
+                    check_dt += timedelta(days=1)
+                next_checks.append(check_dt)
+                
+            elif freq == "monthly":
+                try:
+                    # day_val should be 1-28 for safety (all months have 28 days)
+                    day_num = int(config.schedule_day)
+                except (ValueError, TypeError):
+                    day_num = 1
+                
+                # Try this month
+                try:
+                    check_dt = now.replace(day=day_num, hour=target_hour, minute=target_minute, second=0, microsecond=0)
+                except ValueError:
+                    # If day_num is 31 and month has 30, fallback to last day or next month
+                    check_dt = now.replace(day=28, hour=target_hour, minute=target_minute, second=0, microsecond=0)
+                
+                if check_dt <= now:
+                    # Move to next month
+                    next_month = now.month + 1
+                    next_year = now.year
+                    if next_month > 12:
+                        next_month = 1
+                        next_year += 1
+                    try:
+                        check_dt = check_dt.replace(year=next_year, month=next_month, day=day_num)
+                    except ValueError:
+                        check_dt = check_dt.replace(year=next_year, month=next_month, day=28)
+                
+                next_checks.append(check_dt)
+                
+            else: # weekly
+                target_weekday = WEEKDAYS.get(config.schedule_day or "sunday", 6)
+                
+                days_ahead = target_weekday - now.weekday()
+                if days_ahead < 0:
+                    days_ahead += 7
+                elif days_ahead == 0:
+                    if now.hour > target_hour or (now.hour == target_hour and now.minute >= target_minute):
+                        days_ahead = 7
+                
+                check_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+                check_dt += timedelta(days=days_ahead)
+                next_checks.append(check_dt)
             
         if not next_checks:
             return None
@@ -595,50 +632,59 @@ async def set_timezone(interaction: discord.Interaction, timezone: str):
     bot.restart_scheduler()
 
 
-@set_group.command(name="checkdate", description="Set scheduled check time")
+@set_group.command(name="checkdate", description="Set scheduled check time and frequency")
 @app_commands.describe(
-    day="Day of week",
+    frequency="Frequency of checks",
+    day_val="Day value (Weekday name for weekly, Day number 1-28 for monthly, ignore for daily)",
     hour="Hour (0-23)",
     minute="Minute (0-59)"
 )
-@app_commands.choices(day=[
-    app_commands.Choice(name="Monday", value="monday"),
-    app_commands.Choice(name="Tuesday", value="tuesday"),
-    app_commands.Choice(name="Wednesday", value="wednesday"),
-    app_commands.Choice(name="Thursday", value="thursday"),
-    app_commands.Choice(name="Friday", value="friday"),
-    app_commands.Choice(name="Saturday", value="saturday"),
-    app_commands.Choice(name="Sunday", value="sunday"),
+@app_commands.choices(frequency=[
+    app_commands.Choice(name="Daily", value="daily"),
+    app_commands.Choice(name="Weekly", value="weekly"),
+    app_commands.Choice(name="Monthly", value="monthly"),
 ])
-async def set_checkdate(interaction: discord.Interaction, day: str, hour: int, minute: int = 0):
+async def set_checkdate(interaction: discord.Interaction, frequency: str, day_val: str, hour: int, minute: int = 0):
     """Command /set checkdate."""
-    if not interaction.guild:
-        return
-    
     lang = bot.get_guild_lang(interaction.guild.id)
     
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
-    
-    if hour < 0 or hour > 23:
-        await interaction.response.send_message(t("error_invalid_hour", lang), ephemeral=True)
-        return
-    
-    if minute < 0 or minute > 59:
-        await interaction.response.send_message(t("error_invalid_minute", lang), ephemeral=True)
-        return
-    
+        
+    # Validate frequency and day_val
+    day_cleaned = day_val.lower()
+    if frequency == "weekly":
+        if day_cleaned not in WEEKDAYS:
+            await interaction.response.send_message(t("error_invalid_weekday", lang), ephemeral=True)
+            return
+    elif frequency == "monthly":
+        try:
+            day_num = int(day_val)
+            if day_num < 1 or day_num > 28:
+                await interaction.response.send_message(t("error_invalid_day_num", lang), ephemeral=True)
+                return
+        except ValueError:
+            await interaction.response.send_message(t("error_invalid_day_num", lang), ephemeral=True)
+            return
+            
     config = bot.get_guild_config_obj(interaction.guild.id)
-    config.schedule_day = day
+    config.schedule_frequency = frequency
+    config.schedule_day = day_cleaned if frequency != "daily" else "everyday"
     config.schedule_hour = hour
     config.schedule_minute = minute
     bot.db.save_guild(config)
     
-    day_label = t(f"day_{day}", lang)
-    await interaction.response.send_message(
-        t("set_schedule_success", lang, day=day_label, hour=hour, minute=minute)
-    )
+    freq_label = t(f"freq_{frequency}", lang)
+    if frequency == "weekly":
+        day_label = t(f"day_{day_cleaned}", lang)
+        msg = t("set_schedule_success_weekly", lang, freq=freq_label, day=day_label, hour=hour, minute=minute)
+    elif frequency == "monthly":
+        msg = t("set_schedule_success_monthly", lang, freq=freq_label, day=day_val, hour=hour, minute=minute)
+    else: # daily
+        msg = t("set_schedule_success_daily", lang, freq=freq_label, hour=hour, minute=minute)
+
+    await interaction.response.send_message(msg)
     bot.restart_scheduler()
 
 

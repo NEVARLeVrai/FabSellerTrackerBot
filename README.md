@@ -9,14 +9,15 @@ Discord Bot to track seller products on [Fab.com](https://fab.com) and receive a
 
 - 📦 **SQLite Persistence**: Robust and fast data storage (replaces legacy JSON files).
 - 🔔 **Smart Notifications**: Tracking for both new products and updates with detailed embeds.
-- ⏰ **Scheduled Checks**: Fully configurable check times per guild.
+- ⏰ **Reactive Scheduler**: Flexible check times (Daily, Weekly, Monthly) that update immediately when changed.
+- 🔒 **Synchronization Lock**: Prevents concurrent checks and double notifications (safety first!).
 - 🌍 **Global Support**: Multi-server, multi-timezone, and multi-language (English/French).
 - 💰 **Accurate Pricing**: Multi-currency support (USD/EUR) with VAT-exclusive extraction and IP-lock bypass.
 - 🔗 **Smart Normalization**: Case-insensitive URL standardization to prevent duplicate tracking/notifications.
 - 📜 **Changelog & Versions**: Automatic extraction of product logs and supported Unreal Engine versions.
-- �️ **Anti-Bot Detection**: Stealth mode integration (Playwright) to ensure reliable scraping.
+- 🕵️ **Anti-Bot Detection**: Stealth mode integration (Playwright) to ensure reliable scraping.
 - 🔔 **Role Mentions**: Advanced mention system (configurable per notification type).
-- 🛠️ **Maintenance Suite**: Built-in tools for structure verification and complete data reset.
+- 📊 **Visual Logging**: Professional boxed headers and progress indicators in the terminal.
 
 ## 🚀 Installation
 
@@ -59,24 +60,24 @@ bash run_bot.sh
 
 _(Or manually: `python run.py`)_
 
-## 📋 Discord Commands
+## 📋 Commands
 
-| Command                                    | Description                            |
-| ------------------------------------------ | -------------------------------------- |
-| `/sub <url>`                               | Subscribe to a seller                  |
-| `/unsub <url>`                             | Unsubscribe from a seller              |
-| `/list`                                    | List tracked sellers & check status    |
-| `/set timezone <tz>`                       | Configure timezone (e.g. Europe/Paris) |
-| `/set checkdate <day> <hour>`              | Configure check schedule               |
-| `/set channel <type> #channel`             | Set channel for New/Updated products   |
-| `/set language <lang>`                     | Set bot language (en or fr)            |
-| `/set currency <curr>`                     | Set global currency (USD, EUR)         |
-| `/set mention <true/false>`                | Enable/disable role mentions           |
-| `/set mention_role <type> <role> <action>` | Add/remove roles to mention            |
-| `/set create_roles`                        | Auto-create default notification roles |
-| `/info`                                    | View bot version and changelog         |
-| `/check now`                               | Force immediate check (Admin only)     |
-| `/check config`                            | View server configuration (Admin only) |
+| Command                                    | Description                                    |
+| ------------------------------------------ | ---------------------------------------------- |
+| `/sub <url>`                               | Subscribe to a seller                          |
+| `/unsub <url>`                             | Unsubscribe from a seller                      |
+| `/list`                                    | List tracked sellers & check status            |
+| `/set timezone <tz>`                       | Configure timezone (e.g. Europe/Paris)         |
+| `/set checkdate <freq> <day> <hour> <min>` | Set schedule (Daily/Weekly/Monthly)            |
+| `/set channel <type> #channel`             | Set channel for New/Updated products           |
+| `/set language <lang>`                     | Set bot language (en or fr)                    |
+| `/set currency <curr>`                     | Set global currency (USD, EUR)                 |
+| `/set mention <true/false>`                | Enable/disable role mentions                   |
+| `/set mention_role <type> <role> <action>` | Add/remove roles to mention                    |
+| `/set create_roles`                        | Auto-create default notification roles         |
+| `/info`                                    | View bot version and changelog                 |
+| `/check now`                               | Force immediate check (protected by sync lock) |
+| `/check config`                            | View server configuration (Admin only)         |
 
 ## 📁 Project Structure
 
@@ -87,15 +88,15 @@ _(Or manually: `python run.py`)_
 ├── requirements.txt       # Dependencies
 ├── LICENSE                # MIT License
 ├── bot/
-│   ├── core/              # Main logic, config, database & language managers
-│   ├── models/            # Data models (Product, GuildConfig)
-│   ├── services/          # Scraper & external services (scraper.py)
-│   ├── resources/         # Static resources and persistent data
-│   │   ├── database/      # tracker.db (SQLite)
-│   │   ├── json/          # version.json
-│   │   ├── lang/          # Translation files (en.json, fr.json)
-│   │   └── logs/          # bot.log
-│   └── tools/             # verify_structure.py, reset_bot.py, export_to_json.py
+    ├── core/              # Main logic, config, database & language managers
+    ├── models/            # Data models (Product, GuildConfig)
+    ├── services/          # Scraper & external services (scraper.py)
+    ├── resources/         # Static resources and persistent data
+        ├── database/      # tracker.db (SQLite)
+        ├── json/          # version.json
+        ├── lang/          # Translation files (en.json, fr.json)
+        └── logs/          # bot.log
+    └── tools/             # verify_structure.py, reset_bot.py, export_to_json.py
 ```
 
 ### ⚡ Quick Start
@@ -104,27 +105,8 @@ _(Or manually: `python run.py`)_
 2. **Set Channels** (Mandatory):
    - `/set channel type:New #news`
    - `/set channel type:Updated #alerts`
-3. **Configure Timezone**: `/set timezone Europe/Paris`
+3. **Configure Schedule**: `/set checkdate frequency:Daily hour:10 minute:0`
 4. **Test & Verify**: `/check now`
-
-### 🔧 Full Command List
-
-| Command                                    | Description                            |
-| ------------------------------------------ | -------------------------------------- |
-| `/sub <url>`                               | Subscribe to a seller                  |
-| `/unsub <url>`                             | Unsubscribe from a seller              |
-| `/list`                                    | List tracked sellers & check status    |
-| `/set timezone <tz>`                       | Configure timezone (e.g. Europe/Paris) |
-| `/set checkdate <day> <hour>`              | Configure check schedule               |
-| `/set channel <type> #channel`             | Set channel for New/Updated products   |
-| `/set language <lang>`                     | Set bot language (en or fr)            |
-| `/set currency <curr>`                     | Set global currency (USD, EUR)         |
-| `/set mention <true/false>`                | Enable/disable role mentions           |
-| `/set mention_role <type> <role> <action>` | Add/remove roles to mention            |
-| `/set create_roles`                        | Auto-create default notification roles |
-| `/info`                                    | View bot version and changelog         |
-| `/check now`                               | Force immediate check (Admin only)     |
-| `/check config`                            | View server configuration (Admin only) |
 
 ## 📜 License
 

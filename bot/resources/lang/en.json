@@ -130,5 +130,13 @@
   "config_seller_list": "Tracked Sellers",
   "sub_no_channel_tip": "💡 **Tip**: No notification channel is configured. Use `/set channel` to receive alerts!",
   "check_no_channel_warn": "Error: No notification channel is configured. The check has been cancelled.",
-  "sync_already_in_progress": "A synchronization is already in progress. Please wait for it to complete before starting another one."
+  "sync_already_in_progress": "A synchronization is already in progress. Please wait for it to complete before starting another one.",
+  "freq_daily": "Daily",
+  "freq_weekly": "Weekly",
+  "freq_monthly": "Monthly",
+  "error_invalid_weekday": "Invalid day name. Please use a full day name (e.g. Monday).",
+  "error_invalid_day_num": "Invalid day number. Please choose a number between 1 and 28.",
+  "set_schedule_success_daily": "✅ Schedule updated: **{freq}** sync at **{hour:02d}:{minute:02d}**.",
+  "set_schedule_success_weekly": "✅ Schedule updated: **{freq}** sync every **{day}** at **{hour:02d}:{minute:02d}**.",
+  "set_schedule_success_monthly": "✅ Schedule updated: **{freq}** sync every **day {day}** of the month at **{hour:02d}:{minute:02d}**."
 }
