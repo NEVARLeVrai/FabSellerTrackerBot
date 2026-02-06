@@ -36,8 +36,6 @@ python -m playwright install firefox
 
 ### 4. Configure Discord Token
 
-**Windows:**
-
 ```cmd
 in the config.py file
 ```
