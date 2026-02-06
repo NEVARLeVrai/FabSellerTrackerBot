@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import os
+from datetime import datetime
 from typing import List, Optional, Dict
 from loguru import logger
 from bot.models.models import Product, GuildConfig
@@ -165,4 +166,13 @@ class DatabaseManager:
     def set_global_currency(self, currency: str):
         with self._get_connection() as conn:
             conn.execute("INSERT OR REPLACE INTO guilds (guild_id, currency) VALUES ('GLOBAL', ?)", (currency,))
+            conn.commit()
+
+    def update_seller_status(self, seller_url: str, status: str):
+        """Updates the status and last check timestamp for a seller."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status)
+                VALUES (?, ?, ?)
+            """, (seller_url, datetime.now().isoformat(), status))
             conn.commit()

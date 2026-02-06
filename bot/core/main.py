@@ -240,10 +240,7 @@ class FabSellerTrackerBot(commands.Bot):
                 
                 if result:
                     # Save status to DB
-                    with self.db._get_connection() as conn:
-                        conn.execute("INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status) VALUES (?, ?, ?)",
-                                     (seller_url, datetime.now().isoformat(), "success"))
-                        conn.commit()
+                    self.db.update_seller_status(seller_url, "success")
                     
                     # Convert to Product objects and save
                     new_products = [Product.from_dict(p) for p in result["products"]]
@@ -262,10 +259,7 @@ class FabSellerTrackerBot(commands.Bot):
                 
             except Exception as e:
                 logger.error(f"Check error {seller_url}: {e}")
-                with self.db._get_connection() as conn:
-                    conn.execute("INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status) VALUES (?, ?, ?)",
-                                 (seller_url, datetime.now().isoformat(), "error"))
-                    conn.commit()
+                self.db.update_seller_status(seller_url, "error")
                 
         logger.info("Check completed")
         
@@ -925,10 +919,7 @@ async def check_command(interaction: discord.Interaction):
                 products_count = len(result["products"])
                 
                 # Save status
-                with bot.db._get_connection() as conn:
-                    conn.execute("INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status) VALUES (?, ?, ?)",
-                                 (seller_url, datetime.now().isoformat(), "success"))
-                    conn.commit()
+                bot.db.update_seller_status(seller_url, "success")
                 
                 # Convert to objects and save
                 prods = [Product.from_dict(p) for p in result["products"]]
@@ -958,10 +949,7 @@ async def check_command(interaction: discord.Interaction):
             logger.error(f"Check error {seller_url}: {e}")
             await interaction.followup.send(t("check_error", lang, seller=seller_name, error=str(e)[:100]))
             
-            with bot.db._get_connection() as conn:
-                conn.execute("INSERT OR REPLACE INTO seller_cache (seller_url, last_check, last_status) VALUES (?, ?, ?)",
-                             (seller_url, datetime.now().isoformat(), "error"))
-                conn.commit()
+            bot.db.update_seller_status(seller_url, "error")
     
     # Final message
     if total_new == 0 and total_updated == 0:

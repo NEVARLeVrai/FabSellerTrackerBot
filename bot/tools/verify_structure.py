@@ -39,7 +39,6 @@ def verify():
         "Database Directory": DATABASE_DIR,
         "Logs Directory": LOGS_DIR,
         "Database File": os.path.join(DATABASE_DIR, "tracker.db"),
-        "Sellers File": PATHS['sellers_file'],
         "Version File": PATHS['version_file'],
         "Translations (EN)": os.path.join(RESOURCES_DIR, "lang", "en.json"),
         "Translations (FR)": os.path.join(RESOURCES_DIR, "lang", "fr.json"),

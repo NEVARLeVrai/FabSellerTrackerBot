@@ -90,7 +90,7 @@ _(Or manually: `python run.py`)_
 │   ├── services/          # Scraper & external services (scraper.py)
 │   ├── resources/         # Static resources and persistent data
 │   │   ├── database/      # tracker.db (SQLite)
-│   │   ├── json/          # version.json, legacy JSON files
+│   │   ├── json/          # version.json
 │   │   ├── lang/          # Translation files (en.json, fr.json)
 │   │   └── logs/          # bot.log
 │   └── tools/             # verify_structure.py, reset_bot.py
