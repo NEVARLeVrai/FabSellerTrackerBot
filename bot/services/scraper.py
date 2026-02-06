@@ -7,7 +7,7 @@ import asyncio
 import re
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
@@ -24,7 +24,7 @@ if not IS_WINDOWS:
 else:
     Display = None
 
-from .config import (
+from bot.core.config import (
     FAB_BASE_URL,
     SCRAPE_RETRY_COUNT,
     SCRAPE_DELAY_MIN,
@@ -34,6 +34,7 @@ from .config import (
     DEFAULT_CURRENCY,
     CURRENCY_LOCALES
 )
+from bot.models.models import Product
 
 
 def _clean_text(s: str) -> str:
@@ -177,13 +178,13 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
                                 elif image.startswith("/"):
                                     image = FAB_BASE_URL + image
                         
-                        products.append({
-                            "id": product_id,
-                            "name": name,
-                            "price": price,  # None if not available
-                            "url": product_url,
-                            "image": image
-                        })
+                        products.append(Product(
+                            id=product_id,
+                            name=name,
+                            url=product_url,
+                            price={currency: price} if price else {},
+                            image=image
+                        ))
                     
                     await browser.close()
                     
@@ -547,80 +548,44 @@ async def get_product_details_with_currency(product_url: str, currency: str = DE
             display.stop()
 
 
-def detect_changes(old_products: list, new_products: list, currency: str = "USD") -> dict:
+def detect_changes(old_products: List[Product], new_products: List[Product], currency: str = "USD") -> dict:
     """
     Compares old and new products to detect changes.
-    
-    Args:
-        old_products: List of cached products
-        new_products: List of newly scraped products
-        currency: The currency to compare for price updates
-        
-    Returns:
-        Dict with "new" (new products) and "updated" (updated products)
     """
     changes = {
         "new": [],
         "updated": []
     }
     
-    # Create dict of old products by ID
-    old_by_id = {p["id"]: p for p in (old_products or [])}
+    old_by_id = {p.id: p for p in (old_products or [])}
     
     for new_product in (new_products or []):
-        product_id = new_product.get("id")
-        
-        if product_id not in old_by_id:
-            # New product
-            changes["new"].append(new_product)
+        if new_product.id not in old_by_id:
+            changes["new"].append(new_product.to_dict())
         else:
-            # Check if product updated
-            old_product = old_by_id[product_id]
+            old_product = old_by_id[new_product.id]
             
             # Compare last_update
-            old_update = old_product.get("last_update")
-            new_update = new_product.get("last_update")
-            
-            if new_update and old_update != new_update:
+            if new_product.last_update and old_product.last_update != new_product.last_update:
                 changes["updated"].append({
-                    **new_product,
-                    "previous_update": old_update
+                    **new_product.to_dict(),
+                    "previous_update": old_product.last_update
                 })
             else:
                 # Compare price for requested currency
-                old_p = old_product.get("price")
-                new_p = new_product.get("price")
+                old_val = old_product.price.get(currency)
+                new_val = new_product.price.get(currency)
                 
-                price_updated = False
-                prev_price = None
-                
-                # If new_p is dict, we check the requested currency
-                if isinstance(new_p, dict):
-                    new_val = new_p.get(currency)
-                    if isinstance(old_p, dict):
-                        old_val = old_p.get(currency)
-                    else:
-                        # Migration case: old_p is string
-                        old_val = old_p
-                    
-                    if new_val and old_val != new_val:
-                        price_updated = True
-                        prev_price = old_val
-                elif old_p != new_p:
-                    # Fallback for simple strings
-                    price_updated = True
-                    prev_price = old_p
-                
-                if price_updated:
+                if new_val and old_val != new_val:
                     changes["updated"].append({
-                        **new_product,
-                        "previous_price": prev_price
+                        **new_product.to_dict(),
+                        "previous_price": old_val
                     })
     
     return changes
 
 
-async def scrape_seller_with_details(seller_url: str, existing_products: list = None, progress_callback=None, currency: str = DEFAULT_CURRENCY) -> Optional[dict]:
+async def scrape_seller_with_details(seller_url: str, existing_products: List[Product] = None, progress_callback=None, currency: str = DEFAULT_CURRENCY) -> Optional[dict]:
     """
     Complete seller scraping: product list + details for each product.
     
@@ -653,48 +618,44 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
     for i, product in enumerate(products, 1):
         if progress_callback:
             try:
-                await progress_callback(i, total_products, product["name"])
+                await progress_callback(i, total_products, product.name)
             except Exception as e:
                 logger.warning(f"Progress callback error: {e}")
 
-        product_id = product["id"]
+        product_id = product.id
         existing = existing_by_id.get(product_id)
         
         # If product already exists and has basic info, reuse details
-        if existing and existing.get("last_update"):
+        if existing and existing.last_update:
             # Still get details to check for updates? 
             # Ideally we'd optimize here, but 'Last update' is on the detail page.
             pass
         
         await _random_delay()
         
-        details = await get_product_details_with_currency(product["url"], currency=currency)
+        details = await get_product_details_with_currency(product.url, currency=currency)
         
         if details:
-            enriched_product = {
-                **product,
-                "image": details.get("image") or product.get("image"),
-                "price": details.get("price") or product.get("price"),
-                "ue_versions": details.get("ue_versions"),
-                "last_update": details.get("last_update"),
-                "published": details.get("published"),
-                "changelog": details.get("changelog"),
-                "description": details.get("description"),
-                "reviews_count": details.get("reviews_count", 0),
-                "rating": details.get("rating"),
-                "last_seen": datetime.now().isoformat(),
-                "first_seen": existing.get("first_seen") if existing else datetime.now().isoformat()
-            }
+            enriched_product = Product(
+                id=product.id,
+                name=product.name,
+                url=product.url,
+                image=details.get("image") or product.image,
+                price=details.get("price") or product.price,
+                ue_versions=details.get("ue_versions"),
+                last_update=details.get("last_update"),
+                published=details.get("published"),
+                changelog=details.get("changelog"),
+                description=details.get("description"),
+                reviews_count=details.get("reviews_count", 0),
+                rating=details.get("rating"),
+                last_seen=datetime.now().isoformat(),
+                first_seen=existing.first_seen if existing else datetime.now().isoformat()
+            )
         else:
             # Keep existing info if scraping fails
-            enriched_product = {
-                **product,
-                **product,
-                "price": product.get("price"),
-                **(existing or {}),
-                "last_seen": datetime.now().isoformat(),
-                "first_seen": existing.get("first_seen") if existing else datetime.now().isoformat()
-            }
+            enriched_product = existing or product
+            enriched_product.last_seen = datetime.now().isoformat()
         
         enriched_products.append(enriched_product)
     

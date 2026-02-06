@@ -17,8 +17,10 @@ _available_languages: list = []
 
 def _get_lang_dir() -> str:
     """Get the language files directory path."""
-    # Go up one level from 'bot' to root, then into 'data/lang'
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "lang")
+    # current file: bot/core/lang.py
+    # target: bot/resources/lang
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, "resources", "lang")
 
 
 def load_languages() -> None:

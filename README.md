@@ -7,20 +7,15 @@ Discord Bot to track seller products on [Fab.com](https://fab.com) and receive a
 
 ## ✨ Features
 
-- 📦 Track multiple Fab.com sellers
-- 🔔 Notifications for new products and updates
-- ⏰ Scheduled checks (configurable)
-- 🌍 Multi-server and multi-timezone support
-- 🏳️ Multi-language support (English/French)
-- 💰 Multi-currency support (VAT-exclusive USD/EUR)
-- 🏷️ Explicit 'Excl. Tax' labeling for all prices
-- 🪪 Multi-license price display
-- 🎮 Supported Unreal Engine versions display
-- 📜 Automated Changelog extraction (scrapes latest notes)
-- 🕵️ Stealth mode integration to bypass Cloudflare/CAPTCHA
-- 🔔 Role mentions (configurable per notification type)
-- ℹ️ Version tracking and changelog info
-- 🚀 Shared cache for multi-server efficiency
+- 📦 **SQLite Persistence**: Robust and fast data storage (replaces legacy JSON files).
+- 🔔 **Smart Notifications**: Tracking for both new products and updates with detailed embeds.
+- ⏰ **Scheduled Checks**: Fully configurable check times per guild.
+- 🌍 **Global Support**: Multi-server, multi-timezone, and multi-language (English/French).
+- 💰 **Accurate Pricing**: Multi-currency support (USD/EUR) with VAT-exclusive extraction and IP-lock bypass.
+- 📜 **Changelog & Versions**: Automatic extraction of product logs and supported Unreal Engine versions.
+- �️ **Anti-Bot Detection**: Stealth mode integration (Playwright) to ensure reliable scraping.
+- 🔔 **Role Mentions**: Advanced mention system (configurable per notification type).
+- 🛠️ **Maintenance Suite**: Built-in tools for structure verification and complete data reset.
 
 ## 🚀 Installation
 
@@ -46,7 +41,7 @@ Create a file named `token.txt` in the root folder and paste your Discord Bot To
 Set the `ASSETS_BOT_TOKEN` environment variable.
 
 **Option 3: Legacy File**
-Update the path in `token_file` within `bot/config.py`.
+Update the path in `PATHS['token_file']` within `bot/core/config.py`.
 
 ### 3. Run the bot
 
@@ -69,7 +64,7 @@ _(Or manually: `python run.py`)_
 | ------------------------------------------ | -------------------------------------- |
 | `/sub <url>`                               | Subscribe to a seller                  |
 | `/unsub <url>`                             | Unsubscribe from a seller              |
-| `/list`                                    | List tracked sellers                   |
+| `/list`                                    | List tracked sellers & check status    |
 | `/set timezone <tz>`                       | Configure timezone (e.g. Europe/Paris) |
 | `/set checkdate <day> <hour>`              | Configure check schedule               |
 | `/set channel <type> #channel`             | Set channel for New/Updated products   |
@@ -83,23 +78,27 @@ _(Or manually: `python run.py`)_
 
 ## 📁 Project Structure
 
-```
-├── run.py            # Entry point
-├── bot/              # Source code
-│   ├── config.py     # Configuration
-│   ├── scraper.py    # Fab.com scraper
-│   ├── lang.py       # Language manager
-│   └── main.py       # Main Discord Bot
-├── data/             # Saved data
-│   ├── sellers_subscriptions.json
-│   ├── products_cache.json
-│   └── lang/         # Language files
-└── requirements.txt  # Python dependencies
+```text
+├── run.py                 # Core entry point
+├── run_bot.bat            # Windows launcher
+├── run_bot.sh             # Linux/Mac launcher
+├── requirements.txt       # Dependencies
+├── LICENSE                # MIT License
+├── bot/
+│   ├── core/              # Main logic, config, database & language managers
+│   ├── models/            # Data models (Product, GuildConfig)
+│   ├── services/          # Scraper & external services (scraper.py)
+│   ├── resources/         # Static resources and persistent data
+│   │   ├── database/      # tracker.db (SQLite)
+│   │   ├── json/          # version.json, legacy JSON files
+│   │   ├── lang/          # Translation files (en.json, fr.json)
+│   │   └── logs/          # bot.log
+│   └── tools/             # verify_structure.py, reset_bot.py
 ```
 
 ## 📝 Usage Example
 
-```
+```text
 /sub https://fab.com/sellers/GameAssetFactory
 /set timezone Europe/Paris
 /set checkdate sunday 0 0

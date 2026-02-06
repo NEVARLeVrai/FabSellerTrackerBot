@@ -1,6 +1,13 @@
 {
-  "version": "2.1.0",
+  "version": "3.0.0",
   "changelog": {
+    "3.0.0": [
+      "Major architectural restructuring and SQLite migration",
+      "Modularized codebase into core, services, models, and resources",
+      "Centralized all persistent data in bot/resources directory",
+      "replaced JSON storage with SQLite for better reliability and performance",
+      "Added automated bot reset and structure verification tools"
+    ],
     "2.1.0": [
       "Implemented robust VAT-exclusive price extraction using priceTierId",
       "Bypassed IP-based currency locks to ensure accurate USD pricing globally",

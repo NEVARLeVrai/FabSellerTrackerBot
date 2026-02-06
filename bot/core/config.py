@@ -5,12 +5,19 @@ Configuration for Fab Seller Tracker Bot
 import os
 
 # Paths
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RESOURCES_DIR = os.path.join(BASE_DIR, "bot", "resources")
+JSON_DIR = os.path.join(RESOURCES_DIR, "json")
+DATABASE_DIR = os.path.join(RESOURCES_DIR, "database")
+LOGS_DIR = os.path.join(RESOURCES_DIR, "logs")
+
 PATHS = {
     'token_file': "C:/Users/Danie/Mon Drive/Autres/Bot Python Discord/token_fab.txt",
-    'data_folder': "./data/",
-    'log_file': "./data/logs/bot.log",
-    'sellers_file': "sellers_subscriptions.json",
-    'products_cache_file': "products_cache.json",
+    'database_folder': DATABASE_DIR,
+    'log_file': os.path.join(LOGS_DIR, "bot.log"),
+    'sellers_file': os.path.join(JSON_DIR, "sellers_subscriptions.json"),
+    'products_cache_file': os.path.join(JSON_DIR, "products_cache.json"),
+    'version_file': os.path.join(JSON_DIR, "version.json"),
 }
 
 # Read token from file
@@ -33,11 +40,12 @@ def get_token() -> str:
 
 TOKEN = get_token()
 
-# Data paths (for compatibility)
-DATA_FOLDER = PATHS['data_folder']
+# Constants for easy access
+DATA_FOLDER = PATHS['database_folder']
+LOG_FILE = PATHS['log_file']
+VERSION_FILE = PATHS['version_file']
 SELLERS_FILE = PATHS['sellers_file']
 PRODUCTS_CACHE_FILE = PATHS['products_cache_file']
-LOG_FILE = PATHS['log_file']
 
 # Default schedule
 DEFAULT_CHECK_SCHEDULE = {
