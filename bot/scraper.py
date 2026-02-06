@@ -215,7 +215,13 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
         retries: Number of retries on failure
         
     Returns:
-        Dictionary with {last_update, description, reviews_count} or None
+        Dictionary with {last_update, description, reviews_count, ...} or None
+    """
+    return await get_product_details_with_currency(product_url, currency=DEFAULT_CURRENCY, retries=retries)
+
+async def get_product_details_with_currency(product_url: str, currency: str = DEFAULT_CURRENCY, retries: int = SCRAPE_RETRY_COUNT) -> Optional[dict]:
+    """
+    Visits the product page with specific currency/regional settings.
     """
     # Display only on Linux without DISPLAY
     display = None
@@ -241,7 +247,12 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                         args=args
                     )
                     
+                    # Set locale based on currency
+                    currency_settings = CURRENCY_LOCALES.get(currency, CURRENCY_LOCALES[DEFAULT_CURRENCY])
+                    
                     context = await browser.new_context(
+                         locale=currency_settings["locale"],
+                         timezone_id=currency_settings["timezone"],
                          user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
                          viewport={"width": 1920, "height": 1080}
                     )
@@ -273,7 +284,7 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                         "description": None,
                         "reviews_count": 0,
                         "image": None,
-                        "price": None
+                        "price": {} # Changed to dict for dual currency
                     }
                     
                     # Search for main product image
@@ -302,40 +313,57 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                             continue
                         try:
                             data = json.loads(script.string)
-                            # Navigate to entities -> listings -> ID -> startingPrice
-                            # Possible paths: .initialState.entities... or just root
-                            
                             entities = data.get("initialState", {}).get("entities", {}) or data.get("entities", {})
                             listing = entities.get("listings", {}).get(product_id, {})
                             
                             if listing:
+                                # Helper to get prices from priceTier object
+                                def get_prices_from_tier(tier):
+                                    res = {}
+                                    price_val = tier.get("price")
+                                    curr_code = tier.get("currencyCode", "USD")
+                                    
+                                    # Base price (often local)
+                                    symbol = "€" if curr_code == "EUR" else ("£" if curr_code == "GBP" else "$")
+                                    res[curr_code] = f"{price_val}{symbol}"
+                                    
+                                    # Always try USD from ID if available
+                                    price_tier_id = tier.get("priceTierId", "")
+                                    usd_match = re.search(r"_USD_(\d+)_", price_tier_id)
+                                    if usd_match:
+                                        try:
+                                            usd_val = int(usd_match.group(1)) / 100.0
+                                            res["USD"] = f"{usd_val}$"
+                                        except (ValueError, TypeError):
+                                            pass
+                                    return res
+
                                 # Check for multiple licenses
                                 licenses = listing.get("licenses", [])
-                                if licenses and len(licenses) > 1:
-                                    price_parts = []
+                                if licenses and len(licenses) > 0:
+                                    multi_prices = {}
                                     for lic in licenses:
                                         name = lic.get("name")
-                                        price_val = lic.get("priceTier", {}).get("price")
-                                        currency = lic.get("priceTier", {}).get("currencyCode", "USD")
-                                        if name and price_val is not None:
-                                            symbol = "€" if currency == "EUR" else "$"
-                                            price_parts.append(f"{name}: {price_val}{symbol}")
+                                        tier = lic.get("priceTier", {})
+                                        if name and tier:
+                                            tiers = get_prices_from_tier(tier)
+                                            for c, p in tiers.items():
+                                                if c not in multi_prices: multi_prices[c] = []
+                                                multi_prices[c].append(f"{name}: {p}")
                                     
-                                    if price_parts:
-                                        details["price"] = "\n".join(price_parts)
+                                    if multi_prices:
+                                        details["price"] = {c: "\n".join(p) for c, p in multi_prices.items()}
                                         break
 
                                 # Fallback to startingPrice
                                 starting_price = listing.get("startingPrice")
                                 if starting_price and starting_price.get("price") is not None:
-                                    currency = starting_price.get("currencyCode", "USD")
-                                    symbol = "€" if currency == "EUR" else "$"
-                                    details["price"] = f"{starting_price['price']}{symbol}"
+                                    details["price"] = get_prices_from_tier(starting_price)
                                     break
                                 
                                 # Try price (simple)
                                 if listing.get("price") is not None:
-                                    details["price"] = f"{listing.get('price')}$" # Default symbol if currency missing
+                                    details["price"] = {"USD": f"{listing.get('price')}$"}
                                     break
 
                         except json.JSONDecodeError:
@@ -345,21 +373,25 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     if not details["price"]:
                         og_price = soup.find("meta", property="product:price:amount")
                         if og_price and og_price.get("content"):
-                            currency = soup.find("meta", property="product:price:currency")
-                            currency_symbol = "€" if currency and currency.get("content") == "EUR" else "$"
-                            details["price"] = f"{og_price['content']}{currency_symbol}"
+                            p_curr = soup.find("meta", property="product:price:currency")
+                            curr_code = p_curr.get("content") if p_curr else "USD"
+                            symbol = "€" if curr_code == "EUR" else "$"
+                            details["price"] = {curr_code: f"{og_price['content']}{symbol}"}
                     
                     # Get page text for other extractions
                     page_text = soup.get_text()
                     
-                    # Method 2: Search for price text in page
+                    # Method 3: Search for price text in page
                     if not details["price"]:
                         price_match = re.search(r"[€$][\d.,]+", page_text)
                         if price_match:
                             val = price_match.group(0)
                             if val.startswith("€") or val.startswith("$"):
-                                val = val[1:] + val[0]
-                            details["price"] = val
+                                symbol = val[0]
+                                code = "EUR" if symbol == "€" else "USD"
+                                details["price"] = {code: val[1:] + symbol}
+                    
+                    # ... (rest of extraction logic remains same)
                     
                     # Last update pattern: "Last update" followed by a date
                     last_update_match = re.search(
@@ -515,13 +547,14 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
             display.stop()
 
 
-def detect_changes(old_products: list, new_products: list) -> dict:
+def detect_changes(old_products: list, new_products: list, currency: str = "USD") -> dict:
     """
     Compares old and new products to detect changes.
     
     Args:
         old_products: List of cached products
         new_products: List of newly scraped products
+        currency: The currency to compare for price updates
         
     Returns:
         Dict with "new" (new products) and "updated" (updated products)
@@ -553,12 +586,36 @@ def detect_changes(old_products: list, new_products: list) -> dict:
                     **new_product,
                     "previous_update": old_update
                 })
-            # Compare price too
-            elif old_product.get("price") != new_product.get("price"):
-                changes["updated"].append({
-                    **new_product,
-                    "previous_price": old_product.get("price")
-                })
+            else:
+                # Compare price for requested currency
+                old_p = old_product.get("price")
+                new_p = new_product.get("price")
+                
+                price_updated = False
+                prev_price = None
+                
+                # If new_p is dict, we check the requested currency
+                if isinstance(new_p, dict):
+                    new_val = new_p.get(currency)
+                    if isinstance(old_p, dict):
+                        old_val = old_p.get(currency)
+                    else:
+                        # Migration case: old_p is string
+                        old_val = old_p
+                    
+                    if new_val and old_val != new_val:
+                        price_updated = True
+                        prev_price = old_val
+                elif old_p != new_p:
+                    # Fallback for simple strings
+                    price_updated = True
+                    prev_price = old_p
+                
+                if price_updated:
+                    changes["updated"].append({
+                        **new_product,
+                        "previous_price": prev_price
+                    })
     
     return changes
 
@@ -611,7 +668,7 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
         
         await _random_delay()
         
-        details = await get_product_details(product["url"])
+        details = await get_product_details_with_currency(product["url"], currency=currency)
         
         if details:
             enriched_product = {
@@ -642,7 +699,7 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
         enriched_products.append(enriched_product)
     
     # Detect changes
-    changes = detect_changes(existing_products, enriched_products)
+    changes = detect_changes(existing_products, enriched_products, currency=currency)
     
     return {
         "products": enriched_products,

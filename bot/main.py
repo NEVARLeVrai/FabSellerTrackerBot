@@ -364,13 +364,28 @@ class FabSellerTrackerBot(commands.Bot):
         )
         
         # Price
-        price_val = product.get("price")
+        price_data = product.get("price")
+        if isinstance(price_data, dict):
+            # Select the appropriate currency
+            guild_currency = bot.get_global_currency()
+            price_val = price_data.get(guild_currency)
+            if not price_val:
+                # Fallback to USD or whatever is available
+                price_val = price_data.get("USD") or next(iter(price_data.values()), t("price_not_available", lang))
+        else:
+            price_val = price_data
+
         if not price_val:
              price_val = t("price_not_available", lang)
         else:
             # Localize licenses
             price_val = price_val.replace("Personal", t("license_personal", lang))
             price_val = price_val.replace("Professional", t("license_professional", lang))
+            
+            # Append "Excl. Tax" / "Hors Taxe"
+            excl_tax_label = t("excl_tax", lang)
+            lines = price_val.split("\n")
+            price_val = "\n".join([f"{line} ({excl_tax_label})" for line in lines])
              
         embed.add_field(name=t("embed_price", lang), value=price_val, inline=False)
         

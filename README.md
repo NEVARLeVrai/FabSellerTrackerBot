@@ -12,7 +12,8 @@ Discord Bot to track seller products on [Fab.com](https://fab.com) and receive a
 - ⏰ Scheduled checks (configurable)
 - 🌍 Multi-server and multi-timezone support
 - 🏳️ Multi-language support (English/French)
-- 💰 Multi-currency support (USD/EUR)
+- 💰 Multi-currency support (VAT-exclusive USD/EUR)
+- 🏷️ Explicit 'Excl. Tax' labeling for all prices
 - 🪪 Multi-license price display
 - 🎮 Supported Unreal Engine versions display
 - 📜 Automated Changelog extraction (scrapes latest notes)

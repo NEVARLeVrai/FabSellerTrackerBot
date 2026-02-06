@@ -1,6 +1,12 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "changelog": {
+    "2.1.0": [
+      "Implemented robust VAT-exclusive price extraction using priceTierId",
+      "Bypassed IP-based currency locks to ensure accurate USD pricing globally",
+      "Added explicit 'Excl. Tax' / 'Hors Taxe' labels to all Discord price displays",
+      "Improved regional price handling for dual USD/EUR support"
+    ],
     "2.0.0": [
       "Added Stealth mode using playwright-stealth to bypass Cloudflare/CAPTCHAs",
       "Added automated Changelog extraction (clicks and scrapes latest notes)",
