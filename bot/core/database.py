@@ -110,6 +110,29 @@ class DatabaseManager:
                 schedule_minute=row['schedule_minute']
             )
 
+    def get_all_guilds(self) -> List[GuildConfig]:
+        """Returns all registered guilds from DB (excluding GLOBAL placeholder)."""
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT * FROM guilds WHERE guild_id != 'GLOBAL'").fetchall()
+            guilds = []
+            for row in rows:
+                g = GuildConfig(
+                    guild_id=row['guild_id'],
+                    timezone=row['timezone'],
+                    language=row['language'],
+                    currency=row['currency'],
+                    channel_new=row['channel_new'],
+                    channel_updated=row['channel_updated'],
+                    mentions_enabled=bool(row['mentions_enabled']),
+                    mentions_new=json.loads(row['mentions_new'] or '[]'),
+                    mentions_updated=json.loads(row['mentions_updated'] or '[]'),
+                    schedule_day=row['schedule_day'],
+                    schedule_hour=row['schedule_hour'],
+                    schedule_minute=row['schedule_minute']
+                )
+                guilds.append(g)
+            return guilds
+
     def save_guild(self, config: GuildConfig):
         with self._get_connection() as conn:
             conn.execute("""

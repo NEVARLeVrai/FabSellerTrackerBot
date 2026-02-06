@@ -145,6 +145,15 @@ class FabSellerTrackerBot(commands.Bot):
         if self.check_task is None:
             self.check_task = self.loop.create_task(self._schedule_loop())
             
+    def restart_scheduler(self):
+        """Cancels and restarts the scheduler loop (useful when config changes)."""
+        if self.check_task:
+            self.check_task.cancel()
+            logger.info("Scheduler task cancelled for restart")
+        
+        self.check_task = self.loop.create_task(self._schedule_loop())
+        logger.info("Scheduler task restarted")
+
     async def _schedule_loop(self):
         """Main scheduler loop."""
         while True:
@@ -153,34 +162,43 @@ class FabSellerTrackerBot(commands.Bot):
                 next_check = self._calculate_next_check()
                 if next_check:
                     self.next_check_time = next_check
-                    wait_seconds = (next_check - datetime.now(ZoneInfo(DEFAULT_TIMEZONE))).total_seconds()
+                    now = datetime.now(next_check.tzinfo)
+                    wait_seconds = (next_check - now).total_seconds()
                     
                     if wait_seconds > 0:
-                        logger.info(f"Next check in {wait_seconds/3600:.1f} hours")
+                        logger.info(f"┌───────────────────────────────────────────────────┐")
+                        logger.info(f"│ 🕒 NEXT SYNC IN: {wait_seconds/3600:.1f} hours ({next_check.strftime('%A %H:%M')})")
+                        logger.info(f"└───────────────────────────────────────────────────┘")
                         await asyncio.sleep(wait_seconds)
                     
                     # Execute check
                     await self._check_all_sellers()
                 else:
-                    # No scheduled check, wait 1 hour
+                    # No scheduled check, wait 1 hour and try again
+                    logger.debug("No active schedules found, sleeping 1 hour")
                     await asyncio.sleep(3600)
                     
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logger.error(f"Scheduler error: {e}")
                 await asyncio.sleep(60)
                 
     def _calculate_next_check(self) -> Optional[datetime]:
-        """Calculates next check date based on configured schedules."""
-        # Get the first guild with a schedule from DB
-        with self.db._get_connection() as conn:
-            row = conn.execute("SELECT schedule_day, schedule_hour, schedule_minute, timezone FROM guilds LIMIT 1").fetchone()
+        """Calculates next check date based on all configured schedules."""
+        guilds = self.db.get_all_guilds()
+        
+        if not guilds:
+            return None
             
-        if row:
-            tz = ZoneInfo(row['timezone'] or DEFAULT_TIMEZONE)
+        next_checks = []
+        for config in guilds:
+            tz = ZoneInfo(config.timezone or DEFAULT_TIMEZONE)
             now = datetime.now(tz)
-            target_weekday = WEEKDAYS.get(row['schedule_day'] or "sunday", 6)
-            target_hour = row['schedule_hour'] or 0
-            target_minute = row['schedule_minute'] or 0
+            
+            target_weekday = WEEKDAYS.get(config.schedule_day or "sunday", 6)
+            target_hour = config.schedule_hour or 0
+            target_minute = config.schedule_minute or 0
             
             days_ahead = target_weekday - now.weekday()
             if days_ahead < 0:
@@ -189,11 +207,15 @@ class FabSellerTrackerBot(commands.Bot):
                 if now.hour > target_hour or (now.hour == target_hour and now.minute >= target_minute):
                     days_ahead = 7
             
-            next_check = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-            next_check += timedelta(days=days_ahead)
-            return next_check
+            check_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
+            check_dt += timedelta(days=days_ahead)
+            next_checks.append(check_dt)
             
-        return None
+        if not next_checks:
+            return None
+            
+        # Return the earliest check time
+        return min(next_checks)
     
     async def _check_all_sellers(self):
         """Checks all sellers from all guilds."""
@@ -560,6 +582,7 @@ async def set_timezone(interaction: discord.Interaction, timezone: str):
     await interaction.response.send_message(
         t("set_timezone_success", lang, timezone=timezone)
     )
+    bot.restart_scheduler()
 
 
 @set_group.command(name="checkdate", description="Set scheduled check time")
@@ -606,6 +629,7 @@ async def set_checkdate(interaction: discord.Interaction, day: str, hour: int, m
     await interaction.response.send_message(
         t("set_schedule_success", lang, day=day_label, hour=hour, minute=minute)
     )
+    bot.restart_scheduler()
 
 
 @set_group.command(name="language", description="Set bot language")
