@@ -213,7 +213,7 @@ class FabSellerTrackerBot(commands.Bot):
         for i, seller_url in enumerate(all_sellers, 1):
             try:
                 seller_name = extract_seller_name(seller_url)
-                logger.info(f"Syncing [{i}/{count_total}]: {seller_name}")
+                logger.info(f"  » Syncing [{i}/{count_total}]: {seller_name}")
                 
                 currency = self.get_global_currency()
                 existing_products = self.db.get_seller_products(seller_url)
@@ -890,7 +890,9 @@ async def check_now(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ {t('check_no_channel_warn', lang)}\n\n{t('sub_no_channel_tip', lang)}")
         return
     
-    logger.info(f"--- MANUAL SYNC STARTED (Guild: {interaction.guild.name}) ---")
+    logger.info(f"┌───────────────────────────────────────────────────┐")
+    logger.info(f"│ 🔄 MANUAL SYNC STARTED (Guild: {interaction.guild.name})")
+    logger.info(f"└───────────────────────────────────────────────────┘")
     
     total_new = 0
     total_updated = 0
@@ -910,7 +912,7 @@ async def check_now(interaction: discord.Interaction):
                 logger.warning(f"Failed to update progress message: {e}")
 
         try:
-            logger.info(f"Manual Syncing [{i}/{total_sellers}]: {seller_name}")
+            logger.info(f"  » Syncing [{i}/{total_sellers}]: {seller_name}")
             
             currency = bot.get_global_currency()
             existing_products = bot.db.get_seller_products(seller_url)
@@ -956,7 +958,9 @@ async def check_now(interaction: discord.Interaction):
             bot.db.update_seller_status(seller_url, "error")
             error_count += 1
     
-    logger.info(f"--- MANUAL SYNC COMPLETED ({success_count} success, {error_count} errors) ---")
+    logger.info(f"┌───────────────────────────────────────────────────┐")
+    logger.info(f"│ ✅ MANUAL SYNC COMPLETED: {success_count} success, {error_count} errors")
+    logger.info(f"└───────────────────────────────────────────────────┘")
 
     # Final message
     if total_new == 0 and total_updated == 0:
