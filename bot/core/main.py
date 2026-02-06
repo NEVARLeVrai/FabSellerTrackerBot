@@ -94,6 +94,7 @@ class FabSellerTrackerBot(commands.Bot):
         # Scheduler
         self.next_check_time = None
         self.check_task = None
+        self.is_syncing = False
         
     async def setup_hook(self):
         """Called at bot startup."""
@@ -219,61 +220,70 @@ class FabSellerTrackerBot(commands.Bot):
     
     async def _check_all_sellers(self):
         """Checks all sellers from all guilds."""
-        # Get all unique sellers from all guilds
-        with self.db._get_connection() as conn:
-            rows = conn.execute("SELECT DISTINCT seller_url FROM subscriptions").fetchall()
-            all_sellers = [r['seller_url'] for r in rows]
-        
-        count_total = len(all_sellers)
-        logger.info(f"┌───────────────────────────────────────────────────┐")
-        logger.info(f"│ 🔄 SYNC STARTED ({count_total} sellers to check)        │")
-        logger.info(f"└───────────────────────────────────────────────────┘")
-        
-        success_count = 0
-        error_count = 0
-        
-        for i, seller_url in enumerate(all_sellers, 1):
-            try:
-                seller_name = extract_seller_name(seller_url)
-                logger.info(f"  » Syncing [{i}/{count_total}]: {seller_name}")
-                
-                currency = self.get_global_currency()
-                existing_products = self.db.get_seller_products(seller_url)
-                
-                result = await scrape_seller_with_details(seller_url, existing_products, currency=currency)
-                
-                if result:
-                    self.db.update_seller_status(seller_url, "success")
-                    self.db.save_products(result["products"], seller_url=seller_url)
+        if self.is_syncing:
+            logger.warning("Automated sync skipped: Sync already in progress")
+            return
+            
+        self.is_syncing = True
+        try:
+            # Get all unique sellers from all guilds
+            with self.db._get_connection() as conn:
+                rows = conn.execute("SELECT DISTINCT seller_url FROM subscriptions").fetchall()
+                all_sellers = [r['seller_url'] for r in rows]
+            
+            count_total = len(all_sellers)
+            logger.info(f"┌───────────────────────────────────────────────────┐")
+            logger.info(f"│ 🔄 SYNC STARTED ({count_total} sellers to check)        │")
+            logger.info(f"└───────────────────────────────────────────────────┘")
+            
+            success_count = 0
+            error_count = 0
+            
+            for i, seller_url in enumerate(all_sellers, 1):
+                try:
+                    seller_name = extract_seller_name(seller_url)
+                    logger.info(f"  » Syncing [{i}/{count_total}]: {seller_name}")
                     
-                    changes = result["changes"]
-                    new_c = len(changes.get("new", []))
-                    upd_c = len(changes.get("updated", []))
-                    if new_c > 0 or upd_c > 0:
-                        logger.info(f"  ↳ Changes: {new_c} new, {upd_c} updated")
+                    currency = self.get_global_currency()
+                    existing_products = self.db.get_seller_products(seller_url)
                     
-                    for prod in changes.get("new", []):
-                        await self._notify_guilds(seller_url, prod, is_new=True)
-                        await asyncio.sleep(0.5)
+                    result = await scrape_seller_with_details(seller_url, existing_products, currency=currency)
+                    
+                    if result:
+                        self.db.update_seller_status(seller_url, "success")
+                        self.db.save_products(result["products"], seller_url=seller_url)
                         
-                    for prod in changes.get("updated", []):
-                        await self._notify_guilds(seller_url, prod, is_new=False)
-                        await asyncio.sleep(0.5)
+                        changes = result["changes"]
+                        new_c = len(changes.get("new", []))
+                        upd_c = len(changes.get("updated", []))
+                        if new_c > 0 or upd_c > 0:
+                            logger.info(f"  ↳ Changes: {new_c} new, {upd_c} updated")
+                        
+                        for prod in changes.get("new", []):
+                            await self._notify_guilds(seller_url, prod, is_new=True)
+                            await asyncio.sleep(0.5)
+                            
+                        for prod in changes.get("updated", []):
+                            await self._notify_guilds(seller_url, prod, is_new=False)
+                            await asyncio.sleep(0.5)
+                        
+                        success_count += 1
+                    else:
+                        logger.warning(f"  ↳ Scraping failed for {seller_name}")
+                        error_count += 1
                     
-                    success_count += 1
-                else:
-                    logger.warning(f"  ↳ Scraping failed for {seller_name}")
+                except Exception as e:
+                    logger.error(f"  ↳ Check error for {seller_url}: {e}")
+                    self.db.update_seller_status(seller_url, "error")
                     error_count += 1
-                
-            except Exception as e:
-                logger.error(f"  ↳ Check error for {seller_url}: {e}")
-                self.db.update_seller_status(seller_url, "error")
-                error_count += 1
-                
-        logger.info(f"┌───────────────────────────────────────────────────┐")
-        logger.info(f"│ ✅ SYNC COMPLETED: {success_count} success, {error_count} errors      │")
-        logger.info(f"└───────────────────────────────────────────────────┘")
+                    
+            logger.info(f"┌───────────────────────────────────────────────────┐")
+            logger.info(f"│ ✅ SYNC COMPLETED: {success_count} success, {error_count} errors      │")
+            logger.info(f"└───────────────────────────────────────────────────┘")
         
+        finally:
+            self.is_syncing = False
+            
     async def _notify_guilds(self, seller_url: str, product: dict, is_new: bool):
         """Notifies guilds about new/updated products."""
         seller_name = extract_seller_name(seller_url)
@@ -913,84 +923,94 @@ async def check_now(interaction: discord.Interaction):
     if config.channel_new is None and config.channel_updated is None:
         await interaction.followup.send(f"❌ {t('check_no_channel_warn', lang)}\n\n{t('sub_no_channel_tip', lang)}")
         return
-    
-    logger.info(f"┌───────────────────────────────────────────────────┐")
-    logger.info(f"│ 🔄 MANUAL SYNC STARTED (Guild: {interaction.guild.name})")
-    logger.info(f"└───────────────────────────────────────────────────┘")
-    
-    total_new = 0
-    total_updated = 0
-    total_sellers = len(sellers)
-    success_count = 0
-    error_count = 0
-    
-    for i, seller_url in enumerate(sellers, 1):
-        seller_name = seller_url.split("/sellers/")[-1].rstrip("/")
-        progress_msg = await interaction.followup.send(t("check_progress", lang, current=i, total=total_sellers, seller=seller_name))
         
-        async def progress_callback(current_item, total_items, product_name):
-            try:
-                if current_item % 5 == 0 or current_item == total_items:
-                    await progress_msg.edit(content=f"{t('check_progress', lang, current=i, total=total_sellers, seller=seller_name)}{t('check_progress_detail', lang, current=current_item, total=total_items, product=product_name)}")
-            except Exception as e:
-                logger.warning(f"Failed to update progress message: {e}")
-
-        try:
-            logger.info(f"  » Syncing [{i}/{total_sellers}]: {seller_name}")
-            
-            currency = bot.get_global_currency()
-            existing_products = bot.db.get_seller_products(seller_url)
-            
-            result = await scrape_seller_with_details(seller_url, existing_products, progress_callback=progress_callback, currency=currency)
-            
-            if result:
-                products_count = len(result["products"])
-                
-                # Save status
-                bot.db.update_seller_status(seller_url, "success")
-                
-                # Convert to objects and save
-                prods = result["products"]
-                bot.db.save_products(prods, seller_url=seller_url)
-                
-                changes = result["changes"]
-                new_count = len(changes.get("new", []))
-                updated_count = len(changes.get("updated", []))
-                total_new += new_count
-                total_updated += updated_count
-                
-                await interaction.followup.send(t("check_result", lang, seller=seller_name, count=products_count, new=new_count, updated=updated_count))
-                
-                if changes["new"] or changes["updated"]:
-                    # New products
-                    for prod in changes.get("new", []):
-                        await bot._notify_guilds(seller_url, prod, is_new=True)
-                        await asyncio.sleep(0.5)
-                    # Updated products
-                    for prod in changes.get("updated", []):
-                        await bot._notify_guilds(seller_url, prod, is_new=False)
-                        await asyncio.sleep(0.5)
-                success_count += 1
-            else:
-                await interaction.followup.send(t("check_failed", lang, seller=seller_name))
-                error_count += 1
-                    
-        except Exception as e:
-            logger.error(f"Manual check error {seller_url}: {e}")
-            await interaction.followup.send(t("check_error", lang, seller=seller_name, error=str(e)[:100]))
-            
-            bot.db.update_seller_status(seller_url, "error")
-            error_count += 1
+    # Validation: early exit if already syncing
+    if bot.is_syncing:
+        await interaction.followup.send(f"❌ {t('sync_already_in_progress', lang)}")
+        return
+        
+    bot.is_syncing = True
+    try:
+        logger.info(f"┌───────────────────────────────────────────────────┐")
+        logger.info(f"│ 🔄 MANUAL SYNC STARTED (Guild: {interaction.guild.name})")
+        logger.info(f"└───────────────────────────────────────────────────┘")
     
-    logger.info(f"┌───────────────────────────────────────────────────┐")
-    logger.info(f"│ ✅ MANUAL SYNC COMPLETED: {success_count} success, {error_count} errors")
-    logger.info(f"└───────────────────────────────────────────────────┘")
-
-    # Final message
-    if total_new == 0 and total_updated == 0:
-        await interaction.followup.send(t("check_no_changes", lang))
-    else:
-        await interaction.followup.send(t("check_complete", lang, new=total_new, updated=total_updated))
+        total_new = 0
+        total_updated = 0
+        total_sellers = len(sellers)
+        success_count = 0
+        error_count = 0
+        
+        for i, seller_url in enumerate(sellers, 1):
+            seller_name = seller_url.split("/sellers/")[-1].rstrip("/")
+            progress_msg = await interaction.followup.send(t("check_progress", lang, current=i, total=total_sellers, seller=seller_name))
+            
+            async def progress_callback(current_item, total_items, product_name):
+                try:
+                    if current_item % 5 == 0 or current_item == total_items:
+                        await progress_msg.edit(content=f"{t('check_progress', lang, current=i, total=total_sellers, seller=seller_name)}{t('check_progress_detail', lang, current=current_item, total=total_items, product=product_name)}")
+                except Exception as e:
+                    logger.warning(f"Failed to update progress message: {e}")
+    
+            try:
+                logger.info(f"  » Syncing [{i}/{total_sellers}]: {seller_name}")
+                
+                currency = bot.get_global_currency()
+                existing_products = bot.db.get_seller_products(seller_url)
+                
+                result = await scrape_seller_with_details(seller_url, existing_products, progress_callback=progress_callback, currency=currency)
+                
+                if result:
+                    products_count = len(result["products"])
+                    
+                    # Save status
+                    bot.db.update_seller_status(seller_url, "success")
+                    
+                    # Convert to objects and save
+                    prods = result["products"]
+                    bot.db.save_products(prods, seller_url=seller_url)
+                    
+                    changes = result["changes"]
+                    new_count = len(changes.get("new", []))
+                    updated_count = len(changes.get("updated", []))
+                    total_new += new_count
+                    total_updated += updated_count
+                    
+                    await interaction.followup.send(t("check_result", lang, seller=seller_name, count=products_count, new=new_count, updated=updated_count))
+                    
+                    if changes["new"] or changes["updated"]:
+                        # New products
+                        for prod in changes.get("new", []):
+                            await bot._notify_guilds(seller_url, prod, is_new=True)
+                            await asyncio.sleep(0.5)
+                        # Updated products
+                        for prod in changes.get("updated", []):
+                            await bot._notify_guilds(seller_url, prod, is_new=False)
+                            await asyncio.sleep(0.5)
+                    success_count += 1
+                else:
+                    await interaction.followup.send(t("check_failed", lang, seller=seller_name))
+                    error_count += 1
+                        
+            except Exception as e:
+                logger.error(f"Manual check error {seller_url}: {e}")
+                await interaction.followup.send(t("check_error", lang, seller=seller_name, error=str(e)[:100]))
+                
+                bot.db.update_seller_status(seller_url, "error")
+                error_count += 1
+        
+        logger.info(f"┌───────────────────────────────────────────────────┐")
+        logger.info(f"│ ✅ MANUAL SYNC COMPLETED: {success_count} success, {error_count} errors")
+        logger.info(f"└───────────────────────────────────────────────────┘")
+    
+        # Final message
+        if total_new == 0 and total_updated == 0:
+            await interaction.followup.send(t("check_no_changes", lang))
+        else:
+            await interaction.followup.send(t("check_complete", lang, new=total_new, updated=total_updated))
+            
+    finally:
+        bot.is_syncing = False
 
 
 @check_group.command(name="config", description="View server configuration and settings")

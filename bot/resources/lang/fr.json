@@ -129,5 +129,6 @@
   "config_roles_upd": "Rôles (MAJ)",
   "config_seller_list": "Liste des Sellers",
   "sub_no_channel_tip": "💡 **Astuce** : Aucun canal de notification n'est configuré. Utilisez `/set channel` pour recevoir les alertes !",
-  "check_no_channel_warn": "Erreur : Aucun canal de notification n'est configuré. La vérification a été annulée."
+  "check_no_channel_warn": "Erreur : Aucun canal de notification n'est configuré. La vérification a été annulée.",
+  "sync_already_in_progress": "Une synchronisation est déjà en cours. Veuillez attendre qu'elle se termine avant d'en lancer une autre."
 }
