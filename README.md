@@ -40,11 +40,18 @@ Update the path in `token_file` within `bot/config.py`.
 
 ### 3. Run the bot
 
-The bot will automatically install dependencies on the first run.
+The bot will automatically check and install missing dependencies on the first run.
+
+**Windows:**
+Double-click on `Run Bot.bat`
+
+**Linux / Mac:**
 
 ```bash
-python run.py
+bash run_bot.sh
 ```
+
+_(Or manually: `python run.py`)_
 
 ## 📋 Discord Commands
 
