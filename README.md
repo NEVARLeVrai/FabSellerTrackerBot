@@ -1,90 +1,102 @@
 # 🛒 Fab Seller Tracker Bot
 
-Bot Discord pour suivre les produits de sellers sur [Fab.com](https://fab.com) et recevoir des notifications automatiques.
+Discord Bot to track seller products on [Fab.com](https://fab.com) and receive automatic notifications.
 
-## ✨ Fonctionnalités
+## ✨ Features
 
-- 📦 Suivi de multiples sellers Fab.com
-- 🔔 Notifications pour nouveaux produits et mises à jour
-- ⏰ Vérifications planifiées (configurable)
-- 🌍 Support multi-serveurs et multi-fuseaux horaires
-- 🇫🇷 Messages en français
+- 📦 Track multiple Fab.com sellers
+- 🔔 Notifications for new products and updates
+- ⏰ Scheduled checks (configurable)
+- 🌍 Multi-server and multi-timezone support
+- 🌍 Multi-server and multi-timezone support
+- 🌐 Multi-language support (English/French)
+- 💰 Multi-currency support (USD/EUR/GBP)
+- 📝 Multi-license price display
 
 ## 🚀 Installation
 
-### 1. Cloner le repo
+### 1. Clone the repo
 
 ```bash
-git clone https://github.com/votre-repo/FabSellerTrackerBot.git
+git clone https://github.com/NEVARLeVrai/FabSellerTrackerBot.git
 cd FabSellerTrackerBot
 ```
 
-### 2. Installer les dépendances
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Installer Playwright (navigateur)
+### 3. Install Playwright (browser)
 
 ```bash
 python -m playwright install firefox
 ```
 
-### 4. Configurer le token Discord
+### 4. Configure Discord Token
 
 **Windows:**
 
 ```cmd
-set ASSETS_BOT_TOKEN=votre_token_discord
+set ASSETS_BOT_TOKEN=your_discord_token
 ```
 
 **Linux/Mac:**
 
 ```bash
-export ASSETS_BOT_TOKEN=votre_token_discord
+export ASSETS_BOT_TOKEN=your_discord_token
 ```
 
-### 5. Lancer le bot
+### 5. Run the bot
 
 ```bash
-python main.py
+python run.py
 ```
 
-## 📋 Commandes Discord
+## 📋 Discord Commands
 
-| Commande                                | Description                              |
-| --------------------------------------- | ---------------------------------------- |
-| `/sub <url>`                            | S'abonner à un seller                    |
-| `/unsub <url>`                          | Se désabonner d'un seller                |
-| `/list`                                 | Voir les sellers suivis                  |
-| `/set timezone <tz>`                    | Configurer le fuseau horaire             |
-| `/set checkdate <jour> <heure>`         | Configurer le jour/heure de vérification |
-| `/set channel newproducts #channel`     | Canal pour nouveaux produits             |
-| `/set channel updatedproducts #channel` | Canal pour mises à jour                  |
-| `/check`                                | Forcer une vérification immédiate        |
+| Command                        | Description                            |
+| ------------------------------ | -------------------------------------- |
+| `/sub <url>`                   | Subscribe to a seller                  |
+| `/unsub <url>`                 | Unsubscribe from a seller              |
+| `/list`                        | List tracked sellers                   |
+| `/set timezone <tz>`           | Configure timezone (e.g. Europe/Paris) |
+| `/set checkdate <day> <hour>`  | Configure check schedule               |
+| `/set channel <type> #channel` | Set channel for New/Updated products   |
+| `/set language <lang>`         | Set bot language (en or fr)            |
+| `/set currency <curr>`         | Set global currency (USD, EUR, GBP)    |
+| `/check`                       | Force immediate check (Admin only)     |
 
-## 📁 Structure du projet
+## 📁 Project Structure
 
 ```
-├── config.py         # Configuration et messages
-├── scraper.py        # Scraping Fab.com
-├── main.py           # Bot Discord principal
-├── requirements.txt  # Dépendances Python
-└── data/             # Données sauvegardées (créé automatiquement)
-    ├── sellers_subscriptions.json
-    └── products_cache.json
+├── run.py            # Entry point
+├── bot/              # Source code
+│   ├── config.py     # Configuration
+│   ├── scraper.py    # Fab.com scraper
+│   ├── lang.py       # Language manager
+│   └── main.py       # Main Discord Bot
+├── data/             # Saved data
+│   ├── sellers_subscriptions.json
+│   ├── products_cache.json
+│   └── lang/         # Language files
+└── requirements.txt  # Python dependencies
 ```
 
-## 📝 Exemple d'utilisation
+## 📝 Usage Example
 
 ```
 /sub https://fab.com/sellers/GameAssetFactory
 /set timezone Europe/Paris
 /set checkdate sunday 0 0
-/set channel newproducts #nouveautes
+/set channel new_products #news
+/set language fr
+/set currency EUR
 ```
 
 ## 📜 License
 
-MIT License
+[MIT License](https://github.com/NEVARLeVrai/FabSellerTrackerBot?tab=License-1-ov-file)
+
+**Developed with ❤️ in Python by [NEVAR](https://github.com/NEVARLeVrai)**

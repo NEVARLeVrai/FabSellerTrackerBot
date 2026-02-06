@@ -1,0 +1,69 @@
+{
+  "lang_name": "Français",
+  "lang_code": "fr",
+  
+  "sub_success": "✅ Abonnement ajouté pour le seller : **{seller}**",
+  "sub_already": "ℹ️ Vous êtes déjà abonné à ce seller.",
+  "sub_invalid_url": "❌ URL invalide. Utilisez le format : `https://fab.com/sellers/NomDuSeller`",
+  
+  "unsub_success": "✅ Désabonnement effectué pour : **{seller}**",
+  "unsub_not_found": "ℹ️ Vous n'êtes pas abonné à ce seller.",
+  
+  "list_empty": "📭 Aucun seller suivi pour le moment.",
+  "list_header": "📋 **Sellers suivis :**",
+  
+  "set_timezone_success": "✅ Fuseau horaire configuré : **{timezone}**",
+  "set_timezone_invalid": "❌ Fuseau horaire invalide. Exemple : `Europe/Paris`, `America/New_York`",
+  "set_schedule_success": "✅ Vérification planifiée : **{day}** à **{hour}:{minute}**",
+  "set_channel_success": "✅ Canal configuré pour **{type}** : {channel}",
+  "set_language_success": "✅ Langue configurée : **{language}**",
+  "set_language_invalid": "❌ Langue invalide. Disponibles : {available}",
+  
+  "check_started": "🔄 Vérification en cours...",
+  "check_progress": "🔍 **[{current}/{total}]** Vérification de **{seller}**...",
+  "check_result": "✅ **{seller}** : {count} produits ({new} nouveau(x), {updated} mis à jour)",
+  "check_failed": "⚠️ **{seller}** : Échec du scraping",
+  "check_error": "❌ **{seller}** : Erreur - {error}",
+  "check_complete": "✅ Vérification terminée. {new} nouveau(x), {updated} mis à jour.",
+  "check_no_changes": "✅ Aucun changement détecté.",
+  
+  "price_not_available": "Prix non disponible",
+  "unnamed_product": "Produit sans nom",
+  "error_only_in_guild": "❌ Cette commande ne peut être utilisée que sur un serveur.",
+  "error_invalid_hour": "❌ L'heure doit être comprise entre 0 et 23.",
+  "error_invalid_minute": "❌ Les minutes doivent être comprises entre 0 et 59.",
+  
+  "new_product": "🆕 Nouveau produit",
+  "updated_product": "🔄 Produit mis à jour",
+  
+  "error_generic": "❌ Une erreur s'est produite. Réessayez plus tard.",
+  "error_scraping": "❌ Impossible de récupérer les données du seller.",
+  "permission_denied": "❌ Vous n'avez pas la permission d'utiliser cette commande.",
+  
+  "embed_price": "💰 Prix",
+  "embed_seller": "🏪 Seller",
+  "embed_last_update": "📅 Dernière MAJ",
+  "embed_change": "📝 Changement",
+  "embed_description": "📄 Description",
+  "embed_footer": "Fab Seller Tracker",
+  "change_update_format": "📅 {old} ➜ {new}",
+  "change_price_format": "💰 {old} ➜ {new}",
+  
+  "cmd_sub_desc": "S'abonner à un seller Fab.com",
+  "cmd_sub_url_desc": "URL de la page seller (ex: https://fab.com/sellers/Nom)",
+  "cmd_unsub_desc": "Se désabonner d'un seller",
+  "cmd_list_desc": "Lister les sellers suivis",
+  "cmd_check_desc": "Forcer une vérification immédiate (admin)",
+  "cmd_set_desc": "Paramètres du bot",
+  "cmd_set_timezone_desc": "Configurer le fuseau horaire",
+  "cmd_set_checkdate_desc": "Configurer le planning de vérification",
+  "cmd_set_channel_desc": "Configurer le canal de notification",
+  "cmd_set_language_desc": "Configurer la langue du bot",
+  
+  "set_currency_success": "✅ Devise définie sur **{currency}** (Paramètre Global).",
+  
+  "embed_changelog": "📜 Historique",
+  "none": "Aucun",
+  "license_personal": "Personnel",
+  "license_professional": "Professionnel"
+}

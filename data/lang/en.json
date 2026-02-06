@@ -1,0 +1,69 @@
+{
+  "lang_name": "English",
+  "lang_code": "en",
+  
+  "sub_success": "✅ Subscription added for seller: **{seller}**",
+  "sub_already": "ℹ️ You are already subscribed to this seller.",
+  "sub_invalid_url": "❌ Invalid URL. Use format: `https://fab.com/sellers/SellerName`",
+  
+  "unsub_success": "✅ Unsubscribed from: **{seller}**",
+  "unsub_not_found": "ℹ️ You are not subscribed to this seller.",
+  
+  "list_empty": "📭 No sellers tracked yet.",
+  "list_header": "📋 **Tracked Sellers:**",
+  
+  "set_timezone_success": "✅ Timezone set to: **{timezone}**",
+  "set_timezone_invalid": "❌ Invalid timezone. Example: `Europe/Paris`, `America/New_York`",
+  "set_schedule_success": "✅ Check scheduled: **{day}** at **{hour}:{minute}**",
+  "set_channel_success": "✅ Channel configured for **{type}**: {channel}",
+  "set_language_success": "✅ Language set to: **{language}**",
+  "set_language_invalid": "❌ Invalid language. Available: {available}",
+  
+  "check_started": "🔄 Check in progress...",
+  "check_progress": "🔍 **[{current}/{total}]** Checking **{seller}**...",
+  "check_result": "✅ **{seller}**: {count} products ({new} new, {updated} updated)",
+  "check_failed": "⚠️ **{seller}**: Scraping failed",
+  "check_error": "❌ **{seller}**: Error - {error}",
+  "check_complete": "✅ Check complete. {new} new, {updated} updated.",
+  "check_no_changes": "✅ No changes detected.",
+  
+  "price_not_available": "Price not available",
+  "unnamed_product": "Unnamed Product",
+  "error_only_in_guild": "❌ This command can only be used in a server.",
+  "error_invalid_hour": "❌ Hour must be 0-23",
+  "error_invalid_minute": "❌ Minutes must be 0-59",
+  
+  "new_product": "🆕 New Product",
+  "updated_product": "🔄 Updated Product",
+  
+  "error_generic": "❌ An error occurred. Please try again later.",
+  "error_scraping": "❌ Unable to fetch seller data.",
+  "permission_denied": "❌ You don't have permission to use this command.",
+  
+  "embed_price": "💰 Price",
+  "embed_seller": "🏪 Seller",
+  "embed_last_update": "📅 Last Update",
+  "embed_change": "📝 Change",
+  "embed_description": "📄 Description",
+  "embed_footer": "Fab Seller Tracker",
+  "change_update_format": "📅 {old} ➜ {new}",
+  "change_price_format": "💰 {old} ➜ {new}",
+  
+  "cmd_sub_desc": "Subscribe to a Fab.com seller",
+  "cmd_sub_url_desc": "Seller page URL (e.g. https://fab.com/sellers/Name)",
+  "cmd_unsub_desc": "Unsubscribe from a seller",
+  "cmd_list_desc": "List all tracked sellers",
+  "cmd_check_desc": "Force an immediate check (admin)",
+  "cmd_set_desc": "Bot settings",
+  "cmd_set_timezone_desc": "Set server timezone",
+  "cmd_set_checkdate_desc": "Set check schedule",
+  "cmd_set_channel_desc": "Set notification channel",
+  "cmd_set_language_desc": "Set bot language",
+  
+  "set_currency_success": "✅ Currency set to **{currency}** (Global Setting).",
+  
+  "embed_changelog": "📜 Changelog",
+  "none": "None",
+  "license_personal": "Personal",
+  "license_professional": "Professional"
+}

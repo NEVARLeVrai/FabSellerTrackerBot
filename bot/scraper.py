@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Scraper pour Fab.com - Seller et Product pages
+Scraper for Fab.com - Seller and Product pages
 """
 import random
 import asyncio
@@ -11,9 +11,10 @@ from typing import Optional
 
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
+import json
 from loguru import logger
 
-# pyvirtualdisplay uniquement sur Linux
+# pyvirtualdisplay only on Linux
 IS_WINDOWS = os.name == 'nt'
 if not IS_WINDOWS:
     try:
@@ -23,38 +24,40 @@ if not IS_WINDOWS:
 else:
     Display = None
 
-from config import (
+from .config import (
     FAB_BASE_URL,
     SCRAPE_RETRY_COUNT,
     SCRAPE_DELAY_MIN,
     SCRAPE_DELAY_MAX,
     PAGE_LOAD_TIMEOUT,
-    SCROLL_DELAY
+    SCROLL_DELAY,
+    DEFAULT_CURRENCY,
+    CURRENCY_LOCALES
 )
 
 
 def _clean_text(s: str) -> str:
-    """Nettoie le texte en supprimant les espaces multiples."""
+    """Cleans text by removing multiple spaces."""
     return re.sub(r"\s+", " ", s or "").strip()
 
 
 async def _random_delay():
-    """Délai aléatoire entre les requêtes pour éviter le rate limiting."""
+    """Random delay between requests to avoid rate limiting."""
     await asyncio.sleep(random.uniform(SCRAPE_DELAY_MIN, SCRAPE_DELAY_MAX))
 
 
-async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_COUNT) -> Optional[list[dict]]:
+async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_COUNT, currency: str = DEFAULT_CURRENCY) -> Optional[list[dict]]:
     """
-    Scrape la page seller pour obtenir la liste des produits.
+    Scrapes the seller page to get the list of products.
     
     Args:
-        seller_url: URL de la page seller (ex: https://fab.com/sellers/GameAssetFactory)
-        retries: Nombre de tentatives en cas d'échec
+        seller_url: Seller page URL (e.g. https://fab.com/sellers/GameAssetFactory)
+        retries: Number of retries on failure
         
     Returns:
-        Liste de dictionnaires avec {name, price, url, image} ou None en cas d'erreur
+        List of dictionaries with {name, price, url, image} or None on error
     """
-    # Display uniquement sur Linux sans DISPLAY
+    # Display only on Linux without DISPLAY
     display = None
     if Display and not IS_WINDOWS and not os.getenv("DISPLAY"):
         try:
@@ -67,17 +70,25 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
         for attempt in range(1, retries + 1):
             try:
                 async with async_playwright() as p:
+                    # Set locale based on currency
+                    currency_settings = CURRENCY_LOCALES.get(currency, CURRENCY_LOCALES[DEFAULT_CURRENCY])
+                    
                     browser = await p.firefox.launch(
                         headless=True,
                         args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"]
                     )
-                    page = await browser.new_page()
                     
-                    logger.info(f"Chargement de la page seller: {seller_url}")
+                    context = await browser.new_context(
+                        locale=currency_settings["locale"],
+                        timezone_id=currency_settings["timezone"]
+                    )
+                    page = await context.new_page()
+                    
+                    logger.info(f"Loading seller page: {seller_url}")
                     await page.goto(seller_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
                     await asyncio.sleep(2.0)
                     
-                    # Scroll pour charger tous les produits (lazy loading)
+                    # Scroll to load all products (lazy loading)
                     previous_height = 0
                     scroll_attempts = 0
                     max_scrolls = 20
@@ -97,8 +108,8 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
                     products = []
                     seen_urls = set()
                     
-                    # Chercher les cartes produit dans la grille
-                    # Structure: <a> avec href="/listings/..." contenant image et texte
+                    # Search for product cards in the grid
+                    # Structure: <a> with href="/listings/..." containing image and text
                     for link in soup.find_all("a", href=lambda h: h and h.startswith("/listings/")):
                         product_url = FAB_BASE_URL + link["href"]
                         
@@ -106,27 +117,27 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
                             continue
                         seen_urls.add(product_url)
                         
-                        # Extraire l'ID du produit depuis l'URL
+                        # Extract product ID from URL
                         product_id = link["href"].replace("/listings/", "").split("?")[0]
                         
-                        # Chercher le conteneur parent de la carte
+                        # Search for card parent container
                         card = link.find_parent("li") or link.find_parent("div")
                         
-                        # Nom du produit
+                        # Product Name
                         name = None
-                        # Chercher dans les éléments texte de la carte
+                        # Search in text elements of the card
                         for text_elem in (card or link).find_all(["h2", "h3", "h4", "span", "p", "div"]):
                             text = _clean_text(text_elem.get_text())
-                            # Ignorer les prix et textes courts
+                            # Ignore prices and short texts
                             if text and len(text) > 3 and not text.startswith("From") and not text.startswith("€") and not text.startswith("$"):
-                                if not any(c.isdigit() for c in text[:3]):  # Éviter les prix
+                                if not any(c.isdigit() for c in text[:3]):  # Avoid prices
                                     name = text
                                     break
                         
                         if not name:
-                            name = _clean_text(link.get_text(" ", strip=True)) or "Produit sans nom"
+                            name = _clean_text(link.get_text(" ", strip=True)) or None
                         
-                        # Prix
+                        # Price
                         price = None
                         price_pattern = re.compile(r"From\s*[€$£]?\s*[\d.,]+", re.IGNORECASE)
                         for text_elem in (card or link).find_all(text=True):
@@ -149,7 +160,7 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
                         products.append({
                             "id": product_id,
                             "name": name,
-                            "price": price or "Prix non disponible",
+                            "price": price,  # None if not available
                             "url": product_url,
                             "image": image
                         })
@@ -157,17 +168,17 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
                     await browser.close()
                     
                     if not products:
-                        logger.warning(f"Aucun produit trouvé sur {seller_url}")
+                        logger.warning(f"No products found on {seller_url}")
                         return []
                     
-                    logger.info(f"Trouvé {len(products)} produits sur {seller_url}")
+                    logger.info(f"Found {len(products)} products on {seller_url}")
                     return products
                     
             except Exception as e:
-                logger.error(f"Erreur scraping seller (tentative {attempt}/{retries}): {e}")
+                logger.error(f"Seller scraping error (attempt {attempt}/{retries}): {e}")
                 await asyncio.sleep(random.uniform(5, 10))
         
-        logger.error(f"Échec du scraping seller après {retries} tentatives")
+        logger.error(f"Seller scraping failed after {retries} attempts")
         return None
         
     finally:
@@ -177,16 +188,16 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
 
 async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUNT) -> Optional[dict]:
     """
-    Visite la page produit pour récupérer les détails.
+    Visits the product page to retrieve details.
     
     Args:
-        product_url: URL du produit (ex: https://fab.com/listings/xxx)
-        retries: Nombre de tentatives en cas d'échec
+        product_url: Product URL (e.g. https://fab.com/listings/xxx)
+        retries: Number of retries on failure
         
     Returns:
-        Dictionnaire avec {last_update, changelog, description, reviews_count} ou None
+        Dictionary with {last_update, changelog, description, reviews_count} or None
     """
-    # Display uniquement sur Linux sans DISPLAY
+    # Display only on Linux without DISPLAY
     display = None
     if Display and not IS_WINDOWS and not os.getenv("DISPLAY"):
         try:
@@ -205,11 +216,11 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     )
                     page = await browser.new_page()
                     
-                    logger.info(f"Chargement page produit: {product_url}")
+                    logger.info(f"Loading product page: {product_url}")
                     await page.goto(product_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
                     await asyncio.sleep(2.0)
                     
-                    # Scroll pour charger le contenu
+                    # Scroll to load content
                     await page.evaluate("window.scrollTo(0, 500)")
                     await asyncio.sleep(1.0)
                     
@@ -221,13 +232,94 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                         "published": None,
                         "changelog": [],
                         "description": None,
-                        "reviews_count": 0
+                        "reviews_count": 0,
+                        "image": None,
+                        "price": None
                     }
                     
-                    # Chercher "Last update" dans la section Details
+                    # Search for main product image
+                    # Method 1: meta og:image
+                    og_image = soup.find("meta", property="og:image")
+                    if og_image and og_image.get("content"):
+                        details["image"] = og_image["content"]
+                    
+                    # Method 2: Search in carousel/gallery images
+                    if not details["image"]:
+                        for img in soup.find_all("img"):
+                            src = img.get("src") or img.get("data-src")
+                            if src and ("cdn" in src or "fab.com" in src) and not "avatar" in src.lower():
+                                if src.startswith("//"):
+                                    src = "https:" + src
+                                details["image"] = src
+                                break
+                    
+                    # Search for price
+                    # Method 1: JSON Data (most reliable for licensed products)
+                    # Extract product ID from URL
+                    product_id = product_url.split("/listings/")[-1].split("?")[0]
+                    
+                    for script in soup.find_all("script"):
+                        if not script.string:
+                            continue
+                        try:
+                            data = json.loads(script.string)
+                            # Navigate to entities -> listings -> ID -> startingPrice
+                            # Possible paths: .initialState.entities... or just root
+                            
+                            entities = data.get("initialState", {}).get("entities", {}) or data.get("entities", {})
+                            listing = entities.get("listings", {}).get(product_id, {})
+                            
+                            if listing:
+                                # Check for multiple licenses
+                                licenses = listing.get("licenses", [])
+                                if licenses and len(licenses) > 1:
+                                    price_parts = []
+                                    for lic in licenses:
+                                        name = lic.get("name")
+                                        price_val = lic.get("priceTier", {}).get("price")
+                                        currency = lic.get("priceTier", {}).get("currencyCode", "USD")
+                                        if name and price_val is not None:
+                                            symbol = "€" if currency == "EUR" else "$"
+                                            price_parts.append(f"{name}: {symbol}{price_val}")
+                                    
+                                    if price_parts:
+                                        details["price"] = "\n".join(price_parts)
+                                        break
+
+                                # Fallback to startingPrice
+                                starting_price = listing.get("startingPrice")
+                                if starting_price and starting_price.get("price") is not None:
+                                    currency = starting_price.get("currencyCode", "USD")
+                                    symbol = "€" if currency == "EUR" else "$"
+                                    details["price"] = f"{symbol}{starting_price['price']}"
+                                    break
+                                
+                                # Try price (simple)
+                                if listing.get("price") is not None:
+                                    details["price"] = f"${listing.get('price')}" # Default symbol if currency missing
+                                    break
+
+                        except json.JSONDecodeError:
+                            continue
+
+                    # Method 2: meta og:price (fallback)
+                    if not details["price"]:
+                        og_price = soup.find("meta", property="product:price:amount")
+                        if og_price and og_price.get("content"):
+                            currency = soup.find("meta", property="product:price:currency")
+                            currency_symbol = "€" if currency and currency.get("content") == "EUR" else "$"
+                            details["price"] = f"{currency_symbol}{og_price['content']}"
+                    
+                    # Get page text for other extractions
                     page_text = soup.get_text()
                     
-                    # Last update pattern: "Last update" suivi d'une date
+                    # Method 2: Search for price text in page
+                    if not details["price"]:
+                        price_match = re.search(r"[€$][\d.,]+", page_text)
+                        if price_match:
+                            details["price"] = price_match.group(0)
+                    
+                    # Last update pattern: "Last update" followed by a date
                     last_update_match = re.search(
                         r"Last\s+update\s*[:\s]*([A-Za-z]+\s+\d{1,2},?\s*\d{4})",
                         page_text,
@@ -245,19 +337,19 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     if published_match:
                         details["published"] = published_match.group(1).strip()
                     
-                    # Chercher le lien Changelog et essayer de l'ouvrir
+                    # Search for Changelog link and try to open it
                     changelog_link = soup.find("a", string=re.compile(r"changelog", re.IGNORECASE))
                     if changelog_link:
                         try:
-                            # Cliquer sur le lien changelog
+                            # Click on changelog link
                             await page.click("text=Changelog")
                             await asyncio.sleep(1.5)
                             
-                            # Récupérer le contenu du modal
+                            # Get modal content
                             modal_content = await page.content()
                             modal_soup = BeautifulSoup(modal_content, "html.parser")
                             
-                            # Chercher les entrées de changelog (dates)
+                            # Search for changelog entries (dates)
                             changelog_entries = []
                             date_pattern = re.compile(r"([A-Za-z]+\s+\d{1,2},?\s*\d{4})")
                             for text in modal_soup.find_all(text=date_pattern):
@@ -265,23 +357,23 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                                 if match:
                                     changelog_entries.append(match.group(1))
                             
-                            details["changelog"] = changelog_entries[:10]  # Limiter à 10 entrées
+                            details["changelog"] = changelog_entries[:10]  # Limit to 10 entries
                             
-                            # Fermer le modal
+                            # Close modal
                             await page.keyboard.press("Escape")
                             await asyncio.sleep(0.5)
                             
                         except Exception as e:
-                            logger.warning(f"Impossible d'ouvrir le changelog: {e}")
+                            logger.warning(f"Unable to open changelog: {e}")
                     
-                    # Description (onglet Overview)
+                    # Description (Overview tab)
                     description_section = soup.find("h2", string=re.compile(r"description", re.IGNORECASE))
                     if description_section:
                         desc_parent = description_section.find_parent("div") or description_section.find_parent("section")
                         if desc_parent:
                             details["description"] = _clean_text(desc_parent.get_text(" ", strip=True))[:1000]
                     else:
-                        # Chercher directement le texte de description
+                        # Search directly for description text
                         for div in soup.find_all("div"):
                             text = _clean_text(div.get_text())
                             if len(text) > 100 and "set" in text.lower() or "pack" in text.lower():
@@ -297,14 +389,14 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     
                     await browser.close()
                     
-                    logger.info(f"Détails récupérés pour {product_url}: last_update={details['last_update']}")
+                    logger.info(f"Details retrieved for {product_url}: last_update={details['last_update']}")
                     return details
                     
             except Exception as e:
-                logger.error(f"Erreur scraping produit (tentative {attempt}/{retries}): {e}")
+                logger.error(f"Product scraping error (attempt {attempt}/{retries}): {e}")
                 await asyncio.sleep(random.uniform(5, 10))
         
-        logger.error(f"Échec du scraping produit après {retries} tentatives")
+        logger.error(f"Product scraping failed after {retries} attempts")
         return None
         
     finally:
@@ -314,34 +406,34 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
 
 def detect_changes(old_products: list, new_products: list) -> dict:
     """
-    Compare les anciens et nouveaux produits pour détecter les changements.
+    Compares old and new products to detect changes.
     
     Args:
-        old_products: Liste des produits en cache
-        new_products: Liste des nouveaux produits scrapés
+        old_products: List of cached products
+        new_products: List of newly scraped products
         
     Returns:
-        Dict avec "new" (nouveaux produits) et "updated" (produits mis à jour)
+        Dict with "new" (new products) and "updated" (updated products)
     """
     changes = {
         "new": [],
         "updated": []
     }
     
-    # Créer un dict des anciens produits par ID
+    # Create dict of old products by ID
     old_by_id = {p["id"]: p for p in (old_products or [])}
     
     for new_product in (new_products or []):
         product_id = new_product.get("id")
         
         if product_id not in old_by_id:
-            # Nouveau produit
+            # New product
             changes["new"].append(new_product)
         else:
-            # Vérifier si le produit a été mis à jour
+            # Check if product updated
             old_product = old_by_id[product_id]
             
-            # Comparer last_update
+            # Compare last_update
             old_update = old_product.get("last_update")
             new_update = new_product.get("last_update")
             
@@ -350,7 +442,7 @@ def detect_changes(old_products: list, new_products: list) -> dict:
                     **new_product,
                     "previous_update": old_update
                 })
-            # Comparer le prix aussi
+            # Compare price too
             elif old_product.get("price") != new_product.get("price"):
                 changes["updated"].append({
                     **new_product,
@@ -360,19 +452,21 @@ def detect_changes(old_products: list, new_products: list) -> dict:
     return changes
 
 
-async def scrape_seller_with_details(seller_url: str, existing_products: list = None) -> Optional[dict]:
+async def scrape_seller_with_details(seller_url: str, existing_products: list = None, progress_callback=None, currency: str = DEFAULT_CURRENCY) -> Optional[dict]:
     """
-    Scrape complet d'un seller: liste des produits + détails de chaque produit.
+    Complete seller scraping: product list + details for each product.
     
     Args:
-        seller_url: URL du seller
-        existing_products: Liste des produits existants en cache (pour optimisation)
+        seller_url: Seller URL
+        existing_products: List of existing cached products (for optimization)
+        progress_callback: Async function(current, total, product_name) to report progress
+        currency: Currency code (USD, EUR, GBP)
         
     Returns:
-        Dict avec "products" et "changes" ou None en cas d'erreur
+        Dict with "products" and "changes" or None on error
     """
-    # Phase 1: Récupérer la liste des produits
-    products = await get_seller_products_list(seller_url)
+    # Phase 1: Get product list
+    products = await get_seller_products_list(seller_url, currency=currency)
     
     if products is None:
         return None
@@ -380,19 +474,28 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
     if not products:
         return {"products": [], "changes": {"new": [], "updated": []}}
     
-    # Créer un dict des produits existants par ID
+    # Create dict of existing products by ID
     existing_by_id = {p["id"]: p for p in (existing_products or [])}
     
-    # Phase 2: Récupérer les détails de chaque produit (seulement si nouveau ou potentiellement modifié)
+    # Phase 2: Get details for each product (only if new or potentially modified)
     enriched_products = []
     
-    for product in products:
+    total_products = len(products)
+    
+    for i, product in enumerate(products, 1):
+        if progress_callback:
+            try:
+                await progress_callback(i, total_products, product["name"])
+            except Exception as e:
+                logger.warning(f"Progress callback error: {e}")
+
         product_id = product["id"]
         existing = existing_by_id.get(product_id)
         
-        # Si le produit existe déjà et a les mêmes infos de base, réutiliser les détails
+        # If product already exists and has basic info, reuse details
         if existing and existing.get("last_update"):
-            # Récupérer quand même les détails pour vérifier les mises à jour
+            # Still get details to check for updates? 
+            # Ideally we'd optimize here, but 'Last update' is on the detail page.
             pass
         
         await _random_delay()
@@ -402,6 +505,9 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
         if details:
             enriched_product = {
                 **product,
+                "image": details.get("image") or product.get("image"),
+                "image": details.get("image") or product.get("image"),
+                "price": details.get("price") or product.get("price"),
                 "last_update": details.get("last_update"),
                 "published": details.get("published"),
                 "changelog": details.get("changelog", []),
@@ -411,9 +517,11 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
                 "first_seen": existing.get("first_seen") if existing else datetime.now().isoformat()
             }
         else:
-            # Garder les infos existantes si le scraping échoue
+            # Keep existing info if scraping fails
             enriched_product = {
                 **product,
+                **product,
+                "price": product.get("price"),
                 **(existing or {}),
                 "last_seen": datetime.now().isoformat(),
                 "first_seen": existing.get("first_seen") if existing else datetime.now().isoformat()
@@ -421,7 +529,7 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
         
         enriched_products.append(enriched_product)
     
-    # Détecter les changements
+    # Detect changes
     changes = detect_changes(existing_products, enriched_products)
     
     return {
