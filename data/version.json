@@ -1,0 +1,18 @@
+{
+  "version": "1.1.0",
+  "changelog": {
+    "1.1.0": [
+      "Added Role Mentions system (toggleable)",
+      "Added /info command to view version and changelog",
+      "Redundant 'Description' word removed from notifications",
+      "Added automated browser installation in run.py",
+      "Hardened path handling and added .bat/.sh launchers"
+    ],
+    "1.0.0": [
+      "Initial conversion from EpicAssetsNotifyBot",
+      "Fab.com scraping support",
+      "Multi-language (En/Fr) support",
+      "Multi-license price display"
+    ]
+  }
+}

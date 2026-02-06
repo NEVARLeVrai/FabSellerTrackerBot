@@ -88,19 +88,16 @@ async def get_seller_products_list(seller_url: str, retries: int = SCRAPE_RETRY_
                     await page.goto(seller_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
                     await asyncio.sleep(2.0)
                     
-                    # Scroll to load all products (lazy loading)
+                    # Scroll to load all products (dynamic infinite scroll)
                     previous_height = 0
-                    scroll_attempts = 0
-                    max_scrolls = 20
                     
-                    while scroll_attempts < max_scrolls:
+                    while True:
                         current_height = await page.evaluate("document.body.scrollHeight")
                         if current_height == previous_height:
                             break
                         previous_height = current_height
                         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                         await asyncio.sleep(SCROLL_DELAY)
-                        scroll_attempts += 1
                     
                     content = await page.content()
                     soup = BeautifulSoup(content, "html.parser")
@@ -195,7 +192,7 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
         retries: Number of retries on failure
         
     Returns:
-        Dictionary with {last_update, changelog, description, reviews_count} or None
+        Dictionary with {last_update, description, reviews_count} or None
     """
     # Display only on Linux without DISPLAY
     display = None
@@ -220,8 +217,8 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     await page.goto(product_url, wait_until="domcontentloaded", timeout=PAGE_LOAD_TIMEOUT)
                     await asyncio.sleep(2.0)
                     
-                    # Scroll to load content
-                    await page.evaluate("window.scrollTo(0, 500)")
+                    # Scroll to bottom to trigger lazy loading
+                    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                     await asyncio.sleep(1.0)
                     
                     content = await page.content()
@@ -230,7 +227,6 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     details = {
                         "last_update": None,
                         "published": None,
-                        "changelog": [],
                         "description": None,
                         "reviews_count": 0,
                         "image": None,
@@ -340,34 +336,6 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     if published_match:
                         details["published"] = published_match.group(1).strip()
                     
-                    # Search for Changelog link and try to open it
-                    changelog_link = soup.find("a", string=re.compile(r"changelog", re.IGNORECASE))
-                    if changelog_link:
-                        try:
-                            # Click on changelog link
-                            await page.click("text=Changelog")
-                            await asyncio.sleep(1.5)
-                            
-                            # Get modal content
-                            modal_content = await page.content()
-                            modal_soup = BeautifulSoup(modal_content, "html.parser")
-                            
-                            # Search for changelog entries (dates)
-                            changelog_entries = []
-                            date_pattern = re.compile(r"([A-Za-z]+\s+\d{1,2},?\s*\d{4})")
-                            for text in modal_soup.find_all(text=date_pattern):
-                                match = date_pattern.search(str(text))
-                                if match:
-                                    changelog_entries.append(match.group(1))
-                            
-                            details["changelog"] = changelog_entries[:10]  # Limit to 10 entries
-                            
-                            # Close modal
-                            await page.keyboard.press("Escape")
-                            await asyncio.sleep(0.5)
-                            
-                        except Exception as e:
-                            logger.warning(f"Unable to open changelog: {e}")
                     
                     # Description (Overview tab)
                     description_section = soup.find("h2", string=re.compile(r"description", re.IGNORECASE))
@@ -383,12 +351,25 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                                 details["description"] = text[:1000]
                                 break
                     
-                    # Reviews count
-                    reviews_match = re.search(r"(\d+)\s*review", page_text, re.IGNORECASE)
+                    # Reviews count and rating - format: "Average rating X.X out of 5, total ratings N"
+                    # Extract rating (note sur 5)
+                    rating_match = re.search(r"Average rating\s*([\d.]+)\s*out of 5", page_text, re.IGNORECASE)
+                    if rating_match:
+                        details["rating"] = float(rating_match.group(1))
+                    else:
+                        details["rating"] = None
+                    
+                    # Extract reviews count
+                    reviews_match = re.search(r"total ratings?\s*(\d+)", page_text, re.IGNORECASE)
                     if reviews_match:
                         details["reviews_count"] = int(reviews_match.group(1))
-                    elif "No reviews yet" in page_text:
-                        details["reviews_count"] = 0
+                    else:
+                        # Fallback: try other patterns
+                        reviews_match2 = re.search(r"(\d+)\s*review", page_text, re.IGNORECASE)
+                        if reviews_match2:
+                            details["reviews_count"] = int(reviews_match2.group(1))
+                        elif "No reviews yet" in page_text or "No rating yet" in page_text:
+                            details["reviews_count"] = 0
                     
                     await browser.close()
                     
@@ -509,13 +490,12 @@ async def scrape_seller_with_details(seller_url: str, existing_products: list = 
             enriched_product = {
                 **product,
                 "image": details.get("image") or product.get("image"),
-                "image": details.get("image") or product.get("image"),
                 "price": details.get("price") or product.get("price"),
                 "last_update": details.get("last_update"),
                 "published": details.get("published"),
-                "changelog": details.get("changelog", []),
                 "description": details.get("description"),
                 "reviews_count": details.get("reviews_count", 0),
+                "rating": details.get("rating"),
                 "last_seen": datetime.now().isoformat(),
                 "first_seen": existing.get("first_seen") if existing else datetime.now().isoformat()
             }

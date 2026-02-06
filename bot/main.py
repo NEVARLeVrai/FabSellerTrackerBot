@@ -6,14 +6,33 @@ Discord Bot to track seller products on Fab.com
 import json
 import os
 import asyncio
-from datetime import datetime, timedelta
+import sys
+import aiohttp
+from datetime import datetime, time, timedelta
 from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from loguru import logger
 from zoneinfo import ZoneInfo
+
+# Internal Version and Version File
+BOT_VERSION = "Unknown"
+VERSION_INFO = {}
+
+def load_version():
+    global BOT_VERSION, VERSION_INFO
+    v_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "version.json")
+    if os.path.exists(v_file):
+        try:
+            with open(v_file, 'r', encoding='utf-8') as f:
+                VERSION_INFO = json.load(f)
+                BOT_VERSION = VERSION_INFO.get("version", "Unknown")
+        except Exception as e:
+            logger.error(f"Failed to load version.json: {e}")
+
+load_version()
 
 from .config import (
     TOKEN,
@@ -111,12 +130,13 @@ class FabSellerTrackerBot(commands.Bot):
         self.tree.add_command(unsub_command)
         self.tree.add_command(list_command)
         self.tree.add_command(set_group)
+        self.tree.add_command(info_command)
         self.tree.add_command(check_command)
         
         # Sync commands
         await self.tree.sync()
         logger.info("Slash commands synced")
-        
+    
     def _load_data(self):
         """Loads data from files."""
         os.makedirs(self.data_folder, exist_ok=True)
@@ -136,12 +156,16 @@ class FabSellerTrackerBot(commands.Bot):
             self.subscriptions[guild_id_str] = {
                 "sellers": [],
                 "timezone": DEFAULT_TIMEZONE,
-                "check_schedule": DEFAULT_CHECK_SCHEDULE.copy(),
-                "language": "en",  # Default to English
+                "check_schedule": DEFAULT_CHECK_SCHEDULE,
+                "language": "en",
                 "channels": {
                     "new_products": None,
-                    "updated_products": None,
-                    "default": None
+                    "updated_products": None
+                },
+                "mentions": {
+                    "enabled": False,
+                    "new_products": [],
+                    "updated_products": []
                 }
             }
         
@@ -167,6 +191,14 @@ class FabSellerTrackerBot(commands.Bot):
     async def on_ready(self):
         """Called when bot is ready."""
         logger.info(f"Connected as {self.user}")
+        
+        # Set bot status
+        await self.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.watching,
+                name="Tracking Fab.com sellers"
+            )
+        )
         
         # Start scheduler
         if self.check_task is None:
@@ -250,8 +282,16 @@ class FabSellerTrackerBot(commands.Bot):
                     
                     # Notify subscribed guilds
                     changes = result["changes"]
-                    if changes["new"] or changes["updated"]:
-                        await self._notify_guilds(seller_url, changes)
+                    
+                    # New products
+                    for prod in changes.get("new", []):
+                        await self._notify_guilds(seller_url, prod, is_new=True)
+                        await asyncio.sleep(0.5)
+                        
+                    # Updated products
+                    for prod in changes.get("updated", []):
+                        await self._notify_guilds(seller_url, prod, is_new=False)
+                        await asyncio.sleep(0.5)
                     
                 self._save_data()
                 
@@ -265,42 +305,46 @@ class FabSellerTrackerBot(commands.Bot):
                 
         logger.info("Check completed")
         
-    async def _notify_guilds(self, seller_url: str, changes: dict):
-        """Notifies all guilds subscribed to a seller."""
+    async def _notify_guilds(self, seller_url: str, product: dict, is_new: bool):
+        """Notifies guilds about new/updated products."""
         seller_name = extract_seller_name(seller_url)
         
         for guild_id_str, config in self.subscriptions.items():
+            if guild_id_str == "GLOBAL":
+                continue
+                
             if seller_url not in config.get("sellers", []):
                 continue
                 
             try:
-                guild = self.get_guild(int(guild_id_str))
+                guild_id = int(guild_id_str)
+                guild = self.get_guild(guild_id)
                 if not guild:
                     continue
                 
-                lang = self.get_guild_lang(int(guild_id_str))
-                channels = config.get("channels", {})
+                # Channel selection
+                channel_type = "new_products" if is_new else "updated_products"
+                channel_id = config.get("channels", {}).get(channel_type)
+                if not channel_id:
+                    continue
                 
-                # New products
-                for product in changes.get("new", []):
-                    channel_id = channels.get("new_products") or channels.get("default")
-                    if channel_id:
-                        channel = guild.get_channel(channel_id)
-                        if channel:
-                            embed = self._create_product_embed(product, is_new=True, seller_name=seller_name, seller_url=seller_url, lang=lang)
-                            await channel.send(embed=embed)
-                            await asyncio.sleep(0.5)
+                channel = guild.get_channel(channel_id)
+                if not channel:
+                    continue
                 
-                # Updated products
-                for product in changes.get("updated", []):
-                    channel_id = channels.get("updated_products") or channels.get("default")
-                    if channel_id:
-                        channel = guild.get_channel(channel_id)
-                        if channel:
-                            embed = self._create_product_embed(product, is_new=False, seller_name=seller_name, seller_url=seller_url, lang=lang)
-                            await channel.send(embed=embed)
-                            await asyncio.sleep(0.5)
-                            
+                # Mentions handling
+                mentions_config = config.get("mentions", {})
+                mention_string = None
+                if mentions_config.get("enabled", False):
+                    role_ids = mentions_config.get(channel_type, [])
+                    if role_ids:
+                        mention_string = " ".join([f"<@&{rid}>" for rid in role_ids])
+                
+                lang = config.get("language", "en")
+                embed = self._create_product_embed(product, is_new, seller_name, seller_url, lang)
+                
+                await channel.send(content=mention_string, embed=embed)
+                
             except Exception as e:
                 logger.error(f"Guild notification error {guild_id_str}: {e}")
     
@@ -334,6 +378,20 @@ class FabSellerTrackerBot(commands.Bot):
             val = f"[{seller_name}]({seller_url})" if seller_url else seller_name
             embed.add_field(name=t("embed_seller", lang), value=val, inline=True)
         
+        # Reviews & Rating - Combined display: "5.0/5 (1 review)" or just count or "None"
+        reviews_count = product.get("reviews_count", 0)
+        rating = product.get("rating")
+        
+        if rating is not None and reviews_count > 0:
+            # Show rating with review count: "5.0/5 (1)"
+            reviews_val = f"{rating}/5 ({reviews_count})"
+        elif reviews_count > 0:
+            # Show just count if no rating
+            reviews_val = str(reviews_count)
+        else:
+            reviews_val = t("none", lang)
+        embed.add_field(name=t("embed_reviews", lang), value=reviews_val, inline=True)
+            
         # Last update
         if product.get("last_update"):
             embed.add_field(name=t("embed_last_update", lang), value=product["last_update"], inline=True)
@@ -343,7 +401,7 @@ class FabSellerTrackerBot(commands.Bot):
             if product.get("previous_update"):
                 # "Update: {old} -> {new}"
                 old_up = product['previous_update']
-                new_up = product.get('last_update') or "Now"
+                new_up = product.get('last_update') or t("embed_now", lang)
                 embed.add_field(
                     name=t("embed_change", lang),
                     value=t("change_update_format", lang, old=old_up, new=new_up),
@@ -361,20 +419,18 @@ class FabSellerTrackerBot(commands.Bot):
         
         # Short description
         if product.get("description"):
-            desc = product["description"][:200]
+            desc = product["description"]
+            # Remove duplicate "Description" prefix if present
+            if desc.lower().startswith("description "):
+                desc = desc[12:]  # Remove "Description " (12 chars)
+            elif desc.lower().startswith("description"):
+                desc = desc[11:]  # Remove "Description" (11 chars)
+            desc = desc.strip()
+            desc = desc[:200]
             if len(product["description"]) > 200:
                 desc += "..."
             embed.add_field(name=t("embed_description", lang), value=desc, inline=False)
 
-        # Changelog
-        changelog = product.get("changelog")
-        if changelog:
-            # It's a list of dates usually
-            val = "\n".join(changelog[:5])
-        else:
-            val = t("none", lang)
-        
-        embed.add_field(name=t("embed_changelog", lang), value=val, inline=False)
         
         # Image
         if product.get("image"):
@@ -398,7 +454,7 @@ bot = FabSellerTrackerBot()
 async def sub_command(interaction: discord.Interaction, seller_url: str):
     """Command /sub to subscribe to a seller."""
     if not interaction.guild:
-        await interaction.response.send_message(t("error_only_in_guild", "en"))
+        await interaction.response.send_message(t("error_only_in_guild"))
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
@@ -423,9 +479,11 @@ async def sub_command(interaction: discord.Interaction, seller_url: str):
     
     config["sellers"].append(normalized_url)
     
-    # Set default channel if not configured
-    if config["channels"]["default"] is None:
-        config["channels"]["default"] = interaction.channel.id
+    # Set default notification channels if not configured
+    if config["channels"].get("new_products") is None:
+        config["channels"]["new_products"] = interaction.channel.id
+    if config["channels"].get("updated_products") is None:
+        config["channels"]["updated_products"] = interaction.channel.id
     
     bot._save_data()
     
@@ -471,6 +529,11 @@ async def list_command(interaction: discord.Interaction):
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
+    
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
+        return
+        
     config = bot.get_guild_config(interaction.guild.id)
     sellers = config.get("sellers", [])
     
@@ -487,21 +550,23 @@ async def list_command(interaction: discord.Interaction):
         seller_name = extract_seller_name(seller_url)
         cache = bot.products_cache.get(seller_url, {})
         products_count = len(cache.get("products", []))
-        last_check = cache.get("last_check", "Never")
+        last_check = cache.get("last_check", t("list_never", lang))
         last_status = cache.get("last_status", "unknown")
         
         status_icon = "✅" if last_status == "success" else "❌" if last_status == "error" else "❓"
         
         embed.add_field(
             name=seller_name,
-            value=f"Products: {products_count}\nCheck: {last_check[:10] if 'T' in str(last_check) else last_check} {status_icon}",
+            value=t("list_products_detail", lang, count=products_count, check=last_check[:10] if 'T' in str(last_check) else last_check, icon=status_icon),
             inline=True
         )
     
     # Add schedule info
     schedule = config.get("check_schedule", DEFAULT_CHECK_SCHEDULE)
     tz = config.get("timezone", DEFAULT_TIMEZONE)
-    embed.set_footer(text=f"Schedule: {schedule.get('day')} {schedule.get('hour'):02d}:{schedule.get('minute'):02d} ({tz})")
+    schedule_time = f"{schedule.get('hour'):02d}:{schedule.get('minute'):02d}"
+    day_name = t(f"day_{schedule.get('day')}", lang)
+    embed.set_footer(text=t("list_schedule_footer", lang, day=day_name, time=schedule_time, tz=tz))
     
     await interaction.response.send_message(embed=embed)
 
@@ -584,8 +649,9 @@ async def set_checkdate(interaction: discord.Interaction, day: str, hour: int, m
     }
     bot._save_data()
     
+    day_label = t(f"day_{day}", lang)
     await interaction.response.send_message(
-        t("set_schedule_success", lang, day=day, hour=hour, minute=minute)
+        t("set_schedule_success", lang, day=day_label, hour=hour, minute=minute)
     )
 
 
@@ -652,6 +718,36 @@ async def set_currency(interaction: discord.Interaction, currency: str):
     await interaction.response.send_message(t("set_currency_success", lang, currency=currency))
 
 
+@app_commands.command(name="info", description="Bot information and changelog")
+async def info_command(interaction: discord.Interaction):
+    """Command /info."""
+    lang = bot.get_guild_lang(interaction.guild.id) if interaction.guild else "en"
+    
+    if interaction.guild and not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
+        return
+    
+    embed = discord.Embed(
+        title=t("bot_name", lang),
+        description=t("info_version_prefix", lang, version=BOT_VERSION),
+        color=COLOR_INFO
+    )
+    
+    # Get recent changelog from version info
+    changelog = VERSION_INFO.get("changelog", {})
+    if changelog:
+        # Get the latest version's changelog
+        latest_v = list(changelog.keys())[0] if changelog else None
+        if latest_v:
+            changes = "\n".join([f"• {c}" for c in changelog[latest_v]])
+            embed.add_field(name=t("info_whats_new", lang, version=latest_v), value=changes, inline=False)
+    
+    embed.add_field(name=t("info_developer_label", lang), value=t("developer_name", lang), inline=True)
+    embed.add_field(name=t("info_platform_label", lang), value=t("platform_name", lang), inline=True)
+    
+    await interaction.response.send_message(embed=embed)
+
+
 @set_group.command(name="channel", description="Set notification channel")
 @app_commands.describe(
     notification_type="Notification type",
@@ -678,11 +774,139 @@ async def set_channel(interaction: discord.Interaction, notification_type: str, 
     
     type_label = t("new_product", lang) if notification_type == "new_products" else t("updated_product", lang)
     if not type_label.startswith("🆕") and not type_label.startswith("🔄"):
-        type_label = notification_type # Fallback
+        type_label = t("notify_prefix", lang, label=type_label)
         
     await interaction.response.send_message(
         t("set_channel_success", lang, type=type_label, channel=channel.mention)
     )
+
+
+@set_group.command(name="mention", description="Enable or disable role mentions")
+@app_commands.describe(enabled="Whether to enable mentions")
+async def set_mention_toggle(interaction: discord.Interaction, enabled: bool):
+    """Command /set mention <True/False>."""
+    if not interaction.guild:
+        return
+    
+    lang = bot.get_guild_lang(interaction.guild.id)
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
+        return
+    
+    config = bot.get_guild_config(interaction.guild.id)
+    # Compatibility check
+    if "mentions" not in config:
+        config["mentions"] = {"enabled": False, "new_products": [], "updated_products": []}
+        
+    config["mentions"]["enabled"] = enabled
+    bot._save_data()
+    
+    status_text = t("status_enabled", lang) if enabled else t("status_disabled", lang)
+    await interaction.response.send_message(t("set_mention_status", lang, status=status_text))
+
+
+@set_group.command(name="mention_role", description="Add or remove roles to mention")
+@app_commands.describe(
+    notification_type="Notification type",
+    role="Role to mention",
+    action="Add or Remove"
+)
+@app_commands.choices(
+    notification_type=[
+        app_commands.Choice(name="New Products", value="new_products"),
+        app_commands.Choice(name="Updated Products", value="updated_products"),
+    ],
+    action=[
+        app_commands.Choice(name="Add", value="add"),
+        app_commands.Choice(name="Remove", value="remove"),
+    ]
+)
+async def set_mention_role(interaction: discord.Interaction, notification_type: str, role: discord.Role, action: str):
+    """Command /set mention_role."""
+    if not interaction.guild:
+        return
+    
+    lang = bot.get_guild_lang(interaction.guild.id)
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
+        return
+    
+    config = bot.get_guild_config(interaction.guild.id)
+    # Compatibility
+    if "mentions" not in config:
+        config["mentions"] = {"enabled": False, "new_products": [], "updated_products": []}
+    
+    role_list = config["mentions"].get(notification_type, [])
+    
+    type_name = t(f"type_{notification_type}", lang)
+    if action == "add":
+        if role.id not in role_list:
+            role_list.append(role.id)
+            msg = t("set_mention_role_added", lang, role=role.mention, type=type_name)
+        else:
+            msg = t("set_mention_role_already", lang, role=role.mention)
+    else:
+        if role.id in role_list:
+            role_list.remove(role.id)
+            msg = t("set_mention_role_removed", lang, role=role.mention, type=type_name)
+        else:
+            msg = t("set_mention_role_not_found", lang, role=role.mention)
+            
+    config["mentions"][notification_type] = role_list
+    bot._save_data()
+    await interaction.response.send_message(msg)
+
+
+@set_group.command(name="create_roles", description="Create default roles for Fab notifications")
+async def create_roles_command(interaction: discord.Interaction):
+    """Command /set create_roles."""
+    if not interaction.guild:
+        return
+    
+    lang = bot.get_guild_lang(interaction.guild.id)
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
+        return
+    
+    if not interaction.guild.me.guild_permissions.manage_roles:
+        await interaction.response.send_message(t("error_missing_permissions", lang), ephemeral=True)
+        return
+        
+    await interaction.response.defer()
+    
+    created = []
+    config = bot.get_guild_config(interaction.guild.id)
+    if "mentions" not in config:
+        config["mentions"] = {"enabled": False, "new_products": [], "updated_products": []}
+
+    # Roles to create
+    roles_data = [
+        {"name": t("role_new_name", lang), "type": "new_products", "color": discord.Color.green()},
+        {"name": t("role_updated_name", lang), "type": "updated_products", "color": discord.Color.blue()}
+    ]
+    
+    for r_data in roles_data:
+        # Check if already exists by name (optional, but safer)
+        existing = discord.utils.get(interaction.guild.roles, name=r_data["name"])
+        if not existing:
+            role = await interaction.guild.create_role(
+                name=r_data["name"],
+                color=r_data["color"],
+                mentionable=True,
+                reason=t("role_creation_reason", lang)
+            )
+            config["mentions"][r_data["type"]].append(role.id)
+            created.append(role.mention)
+        else:
+            if existing.id not in config["mentions"][r_data["type"]]:
+                config["mentions"][r_data["type"]].append(existing.id)
+                created.append(f"{existing.mention} {t('role_existing_suffix', lang)}")
+
+    bot._save_data()
+    if created:
+        await interaction.followup.send(t("set_create_roles_success", lang, roles=', '.join(created)))
+    else:
+        await interaction.followup.send(t("set_create_roles_already", lang))
 
 
 @app_commands.command(name="check", description="Force immediate check (admin)")
@@ -720,7 +944,7 @@ async def check_command(interaction: discord.Interaction):
             try:
                 # Update message every 5 items or if it's the last one to avoid rate limits
                 if current_item % 5 == 0 or current_item == total_items:
-                    await progress_msg.edit(content=f"{t('check_progress', lang, current=i, total=total_sellers, seller=seller_name)}\nItem {current_item}/{total_items}: {product_name}")
+                    await progress_msg.edit(content=f"{t('check_progress', lang, current=i, total=total_sellers, seller=seller_name)}{t('check_progress_detail', lang, current=current_item, total=total_items, product=product_name)}")
             except Exception as e:
                 logger.warning(f"Failed to update progress message: {e}")
 
@@ -750,7 +974,15 @@ async def check_command(interaction: discord.Interaction):
                 
                 # Notify
                 if changes["new"] or changes["updated"]:
-                    await bot._notify_guilds(seller_url, changes)
+                    # New products
+                    for prod in changes.get("new", []):
+                        await bot._notify_guilds(seller_url, prod, is_new=True)
+                        await asyncio.sleep(0.5)
+                        
+                    # Updated products
+                    for prod in changes.get("updated", []):
+                        await bot._notify_guilds(seller_url, prod, is_new=False)
+                        await asyncio.sleep(0.5)
             else:
                 await interaction.followup.send(t("check_failed", lang, seller=seller_name))
                     
