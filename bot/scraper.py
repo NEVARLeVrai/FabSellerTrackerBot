@@ -280,7 +280,7 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                                         currency = lic.get("priceTier", {}).get("currencyCode", "USD")
                                         if name and price_val is not None:
                                             symbol = "€" if currency == "EUR" else "$"
-                                            price_parts.append(f"{name}: {symbol}{price_val}")
+                                            price_parts.append(f"{name}: {price_val}{symbol}")
                                     
                                     if price_parts:
                                         details["price"] = "\n".join(price_parts)
@@ -291,12 +291,12 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                                 if starting_price and starting_price.get("price") is not None:
                                     currency = starting_price.get("currencyCode", "USD")
                                     symbol = "€" if currency == "EUR" else "$"
-                                    details["price"] = f"{symbol}{starting_price['price']}"
+                                    details["price"] = f"{starting_price['price']}{symbol}"
                                     break
                                 
                                 # Try price (simple)
                                 if listing.get("price") is not None:
-                                    details["price"] = f"${listing.get('price')}" # Default symbol if currency missing
+                                    details["price"] = f"{listing.get('price')}$" # Default symbol if currency missing
                                     break
 
                         except json.JSONDecodeError:
@@ -308,7 +308,7 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                         if og_price and og_price.get("content"):
                             currency = soup.find("meta", property="product:price:currency")
                             currency_symbol = "€" if currency and currency.get("content") == "EUR" else "$"
-                            details["price"] = f"{currency_symbol}{og_price['content']}"
+                            details["price"] = f"{og_price['content']}{currency_symbol}"
                     
                     # Get page text for other extractions
                     page_text = soup.get_text()
@@ -317,7 +317,10 @@ async def get_product_details(product_url: str, retries: int = SCRAPE_RETRY_COUN
                     if not details["price"]:
                         price_match = re.search(r"[€$][\d.,]+", page_text)
                         if price_match:
-                            details["price"] = price_match.group(0)
+                            val = price_match.group(0)
+                            if val.startswith("€") or val.startswith("$"):
+                                val = val[1:] + val[0]
+                            details["price"] = val
                     
                     # Last update pattern: "Last update" followed by a date
                     last_update_match = re.search(

@@ -544,8 +544,8 @@ async def set_timezone(interaction: discord.Interaction, timezone: str):
 
 @set_group.command(name="checkdate", description="Set scheduled check time")
 @app_commands.describe(
-    day="Day of week / Jour de la semaine",
-    hour="Hour / Heure (0-23)",
+    day="Day of week",
+    hour="Hour (0-23)",
     minute="Minute (0-59)"
 )
 @app_commands.choices(day=[
@@ -589,11 +589,11 @@ async def set_checkdate(interaction: discord.Interaction, day: str, hour: int, m
     )
 
 
-@set_group.command(name="language", description="Set bot language / Configurer la langue")
-@app_commands.describe(language="Language code / Code langue (en, fr)")
+@set_group.command(name="language", description="Set bot language")
+@app_commands.describe(language="Language code (en, fr)")
 @app_commands.choices(language=[
     app_commands.Choice(name="English", value="en"),
-    app_commands.Choice(name="Français", value="fr"),
+    app_commands.Choice(name="French", value="fr"),
 ])
 async def set_language(interaction: discord.Interaction, language: str):
     """Command /set language."""
@@ -625,12 +625,11 @@ async def set_language(interaction: discord.Interaction, language: str):
     )
 
 
-@set_group.command(name="currency", description="Set bot currency / Configurer la devise (USD, EUR, GBP)")
-@app_commands.describe(currency="Currency / Devise")
+@set_group.command(name="currency", description="Set bot currency")
+@app_commands.describe(currency="Currency (USD, EUR)")
 @app_commands.choices(currency=[
     app_commands.Choice(name="USD ($)", value="USD"),
-    app_commands.Choice(name="EUR (€)", value="EUR"),
-    app_commands.Choice(name="GBP (£)", value="GBP")
+    app_commands.Choice(name="EUR (€)", value="EUR")
 ])
 async def set_currency(interaction: discord.Interaction, currency: str):
     """Command /set currency."""

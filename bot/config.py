@@ -76,8 +76,7 @@ SCROLL_DELAY = 1.0  # seconds
 DEFAULT_CURRENCY = "USD"
 CURRENCY_LOCALES = {
     "USD": {"locale": "en-US", "timezone": "America/New_York"},
-    "EUR": {"locale": "fr-FR", "timezone": "Europe/Paris"},
-    "GBP": {"locale": "en-GB", "timezone": "Europe/London"}
+    "EUR": {"locale": "fr-FR", "timezone": "Europe/Paris"}
 }
 
 # Discord Colors (embeds)

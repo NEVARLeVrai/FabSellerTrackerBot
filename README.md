@@ -9,7 +9,7 @@ Discord Bot to track seller products on [Fab.com](https://fab.com) and receive a
 - ⏰ Scheduled checks (configurable)
 - 🌍 Multi-server and multi-timezone support
 - Multi-language support (English/French)
-- 💰 Multi-currency support (USD/EUR/GBP)
+- 💰 Multi-currency support (USD/EUR)
 - 📝 Multi-license price display
 
 ## 🚀 Installation
@@ -57,7 +57,7 @@ python run.py
 | `/set checkdate <day> <hour>`  | Configure check schedule               |
 | `/set channel <type> #channel` | Set channel for New/Updated products   |
 | `/set language <lang>`         | Set bot language (en or fr)            |
-| `/set currency <curr>`         | Set global currency (USD, EUR, GBP)    |
+| `/set currency <curr>`         | Set global currency (USD, EUR)         |
 | `/check`                       | Force immediate check (Admin only)     |
 
 ## 📁 Project Structure
