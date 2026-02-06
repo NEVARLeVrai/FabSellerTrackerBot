@@ -16,10 +16,19 @@ PATHS = {
 # Read token from file
 def get_token() -> str:
     """Reads Discord token from file."""
+    # 1. Check for token.txt in root
+    local_token = "token.txt"
+    if os.path.exists(local_token):
+        with open(local_token, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+            
+    # 2. Check hardcoded path (Legacy)
     token_path = PATHS['token_file']
     if os.path.exists(token_path):
         with open(token_path, 'r', encoding='utf-8') as f:
             return f.read().strip()
+            
+    # 3. Check Environment Variable
     return os.environ.get("ASSETS_BOT_TOKEN", "")
 
 TOKEN = get_token()

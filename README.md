@@ -8,39 +8,39 @@ Discord Bot to track seller products on [Fab.com](https://fab.com) and receive a
 - 🔔 Notifications for new products and updates
 - ⏰ Scheduled checks (configurable)
 - 🌍 Multi-server and multi-timezone support
-- 🌍 Multi-server and multi-timezone support
-- 🌐 Multi-language support (English/French)
+- Multi-language support (English/French)
 - 💰 Multi-currency support (USD/EUR/GBP)
 - 📝 Multi-license price display
 
 ## 🚀 Installation
 
-### 1. Clone the repo
+### 📋 Prerequisites
+
+- **Python 3.9** or higher ([Download here](https://www.python.org/downloads/))
+
+### 1. Clone & Setup
 
 ```bash
 git clone https://github.com/NEVARLeVrai/FabSellerTrackerBot.git
 cd FabSellerTrackerBot
 ```
 
-### 2. Install dependencies
+### 2. Configure Token (3 Options)
 
-```bash
-pip install -r requirements.txt
-```
+You can choose one of the following methods:
 
-### 3. Install Playwright (browser)
+**Option 1: Local File (Recommended)**
+Create a file named `token.txt` in the root folder and paste your Discord Bot Token inside.
 
-```bash
-python -m playwright install firefox
-```
+**Option 2: Environment Variable**
+Set the `ASSETS_BOT_TOKEN` environment variable.
 
-### 4. Configure Discord Token
+**Option 3: Legacy File**
+Update the path in `token_file` within `bot/config.py`.
 
-```cmd
-in the config.py file
-```
+### 3. Run the bot
 
-### 5. Run the bot
+The bot will automatically install dependencies on the first run.
 
 ```bash
 python run.py
