@@ -593,6 +593,18 @@ def detect_changes(old_products: List[Product], new_products: List[Product], cur
                     **new_product.to_dict(),
                     "previous_update": old_product.last_update
                 })
+            # Compare changelog
+            elif new_product.changelog and old_product.changelog != new_product.changelog:
+                changes["updated"].append({
+                    **new_product.to_dict(),
+                    "previous_changelog": old_product.changelog
+                })
+            # Compare UE versions
+            elif new_product.ue_versions and old_product.ue_versions != new_product.ue_versions:
+                changes["updated"].append({
+                    **new_product.to_dict(),
+                    "previous_ue_versions": old_product.ue_versions
+                })
             else:
                 # Compare price for requested currency
                 old_val = old_product.price.get(currency)
