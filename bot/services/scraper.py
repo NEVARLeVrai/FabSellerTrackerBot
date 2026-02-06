@@ -451,7 +451,6 @@ async def get_product_details_with_currency(product_url: str, currency: str = DE
                     ue_versions = None
                     ue_label = soup.find(string=lambda t: t and "Supported Unreal Engine Versions" in t)
                     if ue_label:
-                        logger.debug("UE Label found in DOM")
                         ue_parent = ue_label.parent
                         # Search siblings or ancestors' siblings
                         found = False
@@ -464,7 +463,6 @@ async def get_product_details_with_currency(product_url: str, currency: str = DE
                                 val = _clean_text(ue_value_div.get_text())
                                 if any(c.isdigit() for c in val):
                                     ue_versions = val
-                                    logger.debug(f"UE Versions found via sibling: {ue_versions}")
                                     found = True
                                     break
                             ue_parent = ue_parent.parent
@@ -483,7 +481,6 @@ async def get_product_details_with_currency(product_url: str, currency: str = DE
                              # Simple validation: contains digits, reasonable length
                              if len(cand) > 3 and any(c.isdigit() for c in cand) and len(cand) < 60:
                                  ue_versions = cand
-                                 logger.debug(f"UE Versions found via fallback regex 1: {ue_versions}")
 
                     # Fallback 2: General "Technical Specifications" search
                     if not ue_versions:
@@ -501,7 +498,6 @@ async def get_product_details_with_currency(product_url: str, currency: str = DE
                                     block_match = re.search(r"([\d.\s\–\-\,and]{3,50})", next_text[ver_match.start():])
                                     if block_match:
                                         ue_versions = block_match.group(1).strip()
-                                        logger.debug(f"UE Versions found via Tech Specs fallback: {ue_versions}")
                                         break
                                 tech_parent = tech_parent.find_next_sibling()
 
@@ -552,7 +548,7 @@ async def get_product_details_with_currency(product_url: str, currency: str = DE
                                     
                             except Exception as e:
                                 # Modal didn't appear or timeout
-                                logger.debug(f"Changelog modal issue: {e}")
+                                pass
                                 
                     except Exception as e:
                         logger.warning(f"Error extracting changelog: {e}")
