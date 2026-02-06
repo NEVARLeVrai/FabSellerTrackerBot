@@ -106,7 +106,15 @@ _(Or manually: `python run.py`)_
    - `/set channel type:New #news`
    - `/set channel type:Updated #alerts`
 3. **Configure Schedule**: `/set checkdate frequency:Daily hour:10 minute:0`
-4. **Test & Verify**: `/check now`
+4. **Set Currency**: `/set currency USD`
+5. **Set Language**: `/set language en`
+6. **Test & Verify**: `/check now`
+
+The bot detects product updates based on 4 criteria (in order of priority):
+1. **Last Update Date** — When the product's update date changes
+2. **Changelog** — When new changelog entries are added
+3. **UE Versions** — When supported Unreal Engine versions change
+4. **Price** — When the product price changes
 
 ## 📜 License
 
