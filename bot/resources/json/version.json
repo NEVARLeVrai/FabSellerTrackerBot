@@ -1,6 +1,13 @@
 {
-  "version": "3.1.0",
+  "version": "3.2.0",
   "changelog": {
+    "3.2.0": [
+      "Added announcement publishing feature with /set publish command",
+      "Implemented smart batch publishing (5 messages/batch, 7 min delay between batches)",
+      "Added 30-second collection delay to group messages before publishing",
+      "Auto-publish to followers when channel is News/Announcement type",
+      "Added publish status to /test command with immediate publish support"
+    ],
     "3.1.0": [
       "Implemented Case-Insensitive URL Standardization to prevent duplicate notifications",
       "Removed automatic channel assignment in /sub to ensure user-configured delivery",

@@ -9,6 +9,7 @@ Discord Bot to track seller products on [Fab.com](https://fab.com) and receive a
 
 - 📦 **SQLite Persistence**: Robust and fast data storage (replaces legacy JSON files).
 - 🔔 **Smart Notifications**: Tracking for both new products and updates with detailed embeds.
+- 📢 **Announcement Publishing**: Auto-publish messages to Discord announcement channels with smart batch system (5 messages/batch, 7 min delay).
 - ⏰ **Reactive Scheduler**: Flexible check times (Daily, Weekly, Monthly) that update immediately when changed.
 - 🔒 **Synchronization Lock**: Prevents concurrent checks and double notifications (safety first!).
 - 🌍 **Global Support**: Multi-server, multi-timezone, and multi-language (English/French).
@@ -62,22 +63,24 @@ _(Or manually: `python run.py`)_
 
 ## 📋 Commands
 
-| Command                                    | Description                                    |
-| ------------------------------------------ | ---------------------------------------------- |
-| `/sub <url>`                               | Subscribe to a seller                          |
-| `/unsub <url>`                             | Unsubscribe from a seller                      |
-| `/list`                                    | List tracked sellers & check status            |
-| `/set timezone <tz>`                       | Configure timezone (e.g. Europe/Paris)         |
-| `/set checkdate <freq> <day> <hour> <min>` | Set schedule (Daily/Weekly/Monthly)            |
-| `/set channel <type> #channel`             | Set channel for New/Updated products           |
-| `/set language <lang>`                     | Set bot language (en or fr)                    |
-| `/set currency <curr>`                     | Set global currency (USD, EUR)                 |
-| `/set mention <true/false>`                | Enable/disable role mentions                   |
-| `/set mention_role <type> <role> <action>` | Add/remove roles to mention                    |
-| `/set create_roles`                        | Auto-create default notification roles         |
-| `/info`                                    | View bot version and changelog                 |
-| `/check now`                               | Force immediate check (protected by sync lock) |
-| `/check config`                            | View server configuration (Admin only)         |
+| Command                                    | Description                                           |
+| ------------------------------------------ | ----------------------------------------------------- |
+| `/test`                                    | Test bot functionality and send a test message        |
+| `/sub <url>`                               | Subscribe to a seller                                 |
+| `/unsub <url>`                             | Unsubscribe from a seller                             |
+| `/list`                                    | List tracked sellers & check status                   |
+| `/set timezone <tz>`                       | Configure timezone (e.g. Europe/Paris)                |
+| `/set checkdate <freq> <day> <hour> <min>` | Set schedule (Daily/Weekly/Monthly)                   |
+| `/set channel <type> #channel`             | Set channel for New/Updated products                  |
+| `/set language <lang>`                     | Set bot language (en or fr)                           |
+| `/set currency <curr>`                     | Set global currency (USD, EUR)                        |
+| `/set mention <true/false>`                | Enable/disable role mentions                          |
+| `/set mention_role <type> <role> <action>` | Add/remove roles to mention                           |
+| `/set publish <true/false>`                | Enable/disable auto-publish to announcement followers |
+| `/set create_roles`                        | Auto-create default notification roles                |
+| `/info`                                    | View bot version and changelog                        |
+| `/check now`                               | Force immediate check (protected by sync lock)        |
+| `/check config`                            | View server configuration (Admin only)                |
 
 ## 📁 Project Structure
 
@@ -108,7 +111,11 @@ _(Or manually: `python run.py`)_
 3. **Configure Schedule**: `/set checkdate frequency:Daily hour:10 minute:0`
 4. **Set Currency**: `/set currency USD`
 5. **Set Language**: `/set language en`
-6. **Test & Verify**: `/check now`
+6. **Enable Publishing** (Optional - for announcement channels): `/set publish true`
+7. **Test & Verify**: `/test` or `/check now`
+
+> [!TIP]
+> To use the auto-publish feature, your notification channels must be **Announcement Channels** (News type). Discord limits publishing to 10 messages per hour.
 
 The bot detects product updates based on 4 criteria (in order of priority):
 1. **Last Update Date** — When the product's update date changes

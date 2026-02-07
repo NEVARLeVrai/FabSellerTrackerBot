@@ -138,5 +138,27 @@
   "error_invalid_day_num": "Numéro de jour invalide. Veuillez choisir un nombre entre 1 et 28.",
   "set_schedule_success_daily": "✅ Planning mis à jour : Sync **{freq}** à **{hour:02d}:{minute:02d}**.",
   "set_schedule_success_weekly": "✅ Planning mis à jour : Sync **{freq}** chaque **{day}** à **{hour:02d}:{minute:02d}**.",
-  "set_schedule_success_monthly": "✅ Planning mis à jour : Sync **{freq}** chaque **jour {day}** du mois à **{hour:02d}:{minute:02d}**."
+  "set_schedule_success_monthly": "✅ Planning mis à jour : Sync **{freq}** chaque **jour {day}** du mois à **{hour:02d}:{minute:02d}**.",
+  "invalid_channel_type": "❌ Type de canal invalide. Veuillez sélectionner un canal texte.",
+  
+  "test_working": "✅ **Le bot fonctionne !**",
+  "test_admin": "👤 **Admin :**",
+  "test_yes": "✅ Oui",
+  "test_no": "❌ Non",
+  "test_channel_new": "📢 **Canal Nouveaux Produits :**",
+  "test_channel_updated": "🔄 **Canal Produits Mis à Jour :**",
+  "test_not_set": "❌ Non configuré",
+  "test_sellers": "📋 **Sellers Suivis :**",
+  "test_language": "🌐 **Langue :**",
+  "test_sending": "📤 **Envoi du message test...**",
+  "test_sent_success": "✅ Message test envoyé dans {channel} !",
+  "test_sent_fail": "❌ Échec d'envoi dans {channel} : {error}",
+  "test_message": "🧪 **Message Test**\nCeci est un test du bot Fab Seller Tracker !",
+  
+  "set_publish_status": "La publication des annonces est maintenant **{status}**.",
+  "publish_success": "📢 Message publié aux serveurs abonnés.",
+  "publish_rate_limited": "⏳ Limite atteinte. Nouvel essai dans {seconds}s...",
+  "publish_not_announcement_channel": "⚠️ Le canal n'est pas un canal d'annonce. Publication ignorée.",
+  "publish_error": "❌ Échec de la publication : {error}",
+  "config_publish": "Publier aux abonnés"
 }

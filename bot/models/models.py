@@ -70,3 +70,6 @@ class GuildConfig:
     schedule_hour: int = 0
     schedule_minute: int = 0
     schedule_frequency: str = "weekly" # daily, weekly, monthly
+    
+    # Announcement channel publishing
+    publish_announcements: bool = False

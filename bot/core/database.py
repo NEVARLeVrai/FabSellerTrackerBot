@@ -90,6 +90,11 @@ class DatabaseManager:
             if 'product_count' not in cache_columns:
                 conn.execute("ALTER TABLE seller_cache ADD COLUMN product_count INTEGER DEFAULT 0")
             
+            # Migration: add publish_announcements column if missing
+            guild_columns = [col[1] for col in conn.execute("PRAGMA table_info(guilds)").fetchall()]
+            if 'publish_announcements' not in guild_columns:
+                conn.execute("ALTER TABLE guilds ADD COLUMN publish_announcements INTEGER DEFAULT 0")
+            
             conn.commit()
 
     # --- Guild Methods ---
@@ -115,7 +120,8 @@ class DatabaseManager:
                 schedule_day=row['schedule_day'],
                 schedule_hour=row['schedule_hour'],
                 schedule_minute=row['schedule_minute'],
-                schedule_frequency=row['schedule_frequency'] if 'schedule_frequency' in row.keys() else 'weekly'
+                schedule_frequency=row['schedule_frequency'] if 'schedule_frequency' in row.keys() else 'weekly',
+                publish_announcements=bool(row['publish_announcements']) if 'publish_announcements' in row.keys() else False
             )
 
     def get_all_guilds(self) -> List[GuildConfig]:
@@ -137,7 +143,8 @@ class DatabaseManager:
                     schedule_day=row['schedule_day'],
                     schedule_hour=row['schedule_hour'],
                     schedule_minute=row['schedule_minute'],
-                    schedule_frequency=row['schedule_frequency'] if 'schedule_frequency' in row.keys() else 'weekly'
+                    schedule_frequency=row['schedule_frequency'] if 'schedule_frequency' in row.keys() else 'weekly',
+                    publish_announcements=bool(row['publish_announcements']) if 'publish_announcements' in row.keys() else False
                 )
                 guilds.append(g)
             return guilds
@@ -147,13 +154,14 @@ class DatabaseManager:
             conn.execute("""
                 INSERT OR REPLACE INTO guilds 
                 (guild_id, timezone, language, currency, channel_new, channel_updated, 
-                 mentions_enabled, mentions_new, mentions_updated, schedule_day, schedule_hour, schedule_minute, schedule_frequency)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 mentions_enabled, mentions_new, mentions_updated, schedule_day, schedule_hour, schedule_minute, schedule_frequency, publish_announcements)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 config.guild_id, config.timezone, config.language, config.currency,
                 config.channel_new, config.channel_updated, int(config.mentions_enabled),
                 json.dumps(config.mentions_new), json.dumps(config.mentions_updated),
-                config.schedule_day, config.schedule_hour, config.schedule_minute, config.schedule_frequency
+                config.schedule_day, config.schedule_hour, config.schedule_minute, config.schedule_frequency,
+                int(config.publish_announcements)
             ))
             
             # Sync subscriptions

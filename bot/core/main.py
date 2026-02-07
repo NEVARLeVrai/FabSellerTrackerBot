@@ -9,7 +9,7 @@ import asyncio
 import sys
 import aiohttp
 from datetime import datetime, time, timedelta
-from typing import Optional
+from typing import Optional, Union
 
 import discord
 from discord import app_commands
@@ -85,6 +85,7 @@ class FabSellerTrackerBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.guilds = True  # Ensure guilds intent is enabled
         super().__init__(command_prefix="!", intents=intents)
         
         # Database
@@ -96,11 +97,22 @@ class FabSellerTrackerBot(commands.Bot):
         self.check_task = None
         self.is_syncing = False
         
+        # Publish queue for announcement channels
+        self._publish_queue: asyncio.Queue = None  # Initialized in setup_hook
+        self._publish_task = None
+        self._publish_batch_size = 5  # Publish 5 messages at once
+        self._publish_batch_delay = 420  # Wait 7 minutes between batches (~8 batches/hour = safe)
+        self._publish_collect_delay = 30  # Wait 30 seconds to collect messages before first publish
+        
     async def setup_hook(self):
         """Called at bot startup."""
         # Database initialized in __init__
         
+        # Initialize publish queue
+        self._publish_queue = asyncio.Queue()
+        
         # Add commands
+        self.tree.add_command(test_command)
         self.tree.add_command(sub_command)
         self.tree.add_command(unsub_command)
         self.tree.add_command(list_command)
@@ -145,6 +157,10 @@ class FabSellerTrackerBot(commands.Bot):
         # Start scheduler
         if self.check_task is None:
             self.check_task = self.loop.create_task(self._schedule_loop())
+        
+        # Start publish worker
+        if self._publish_task is None:
+            self._publish_task = self.loop.create_task(self._publish_worker())
             
     def restart_scheduler(self):
         """Cancels and restarts the scheduler loop (useful when config changes)."""
@@ -354,10 +370,113 @@ class FabSellerTrackerBot(commands.Bot):
                 lang = config.language
                 embed = self._create_product_embed(product, is_new, seller_name, seller_url, lang)
                 
-                await channel.send(content=mention_string, embed=embed)
+                message = await channel.send(content=mention_string, embed=embed)
+                
+                # Publish to announcement channel followers if enabled
+                if config.publish_announcements:
+                    await self._publish_message(message, lang)
                 
             except Exception as e:
                 logger.error(f"Guild notification error {guild_id_str}: {e}")
+    
+    async def _publish_message(self, message: discord.Message, lang: str = "en", immediate: bool = False):
+        """Queues a message for publishing to announcement channel followers.
+        
+        Args:
+            message: The message to publish
+            lang: Language code
+            immediate: If True, publishes immediately (for /test command)
+        """
+        try:
+            # Check if channel is an announcement channel
+            if message.channel.type != discord.ChannelType.news:
+                logger.warning(f"Channel {message.channel.id} is not an announcement channel")
+                return False
+            
+            if immediate:
+                # Publish immediately (for /test)
+                await message.publish()
+                logger.info(f"Message {message.id} published immediately")
+                return True
+            else:
+                # Add to queue for batched publishing
+                await self._publish_queue.put((message, lang))
+                queue_size = self._publish_queue.qsize()
+                # Estimate: batches of 5, 2 min between batches
+                batches_needed = (queue_size + self._publish_batch_size - 1) // self._publish_batch_size
+                estimated_time = max(0, batches_needed - 1) * self._publish_batch_delay // 60
+                logger.info(f"Message {message.id} queued for publishing (queue size: {queue_size}, ~{estimated_time} min)")
+                return True
+                
+        except discord.Forbidden:
+            logger.error(f"Missing permissions to publish in channel {message.channel.id}")
+            return False
+        except Exception as e:
+            logger.error(f"Error queuing message for publish: {e}")
+            return False
+    
+    async def _publish_worker(self):
+        """Background worker that processes the publish queue in batches."""
+        logger.info("Publish worker started")
+        
+        while True:
+            try:
+                # Wait for at least one message
+                message, lang = await self._publish_queue.get()
+                
+                # Wait a bit to let more messages accumulate (useful for new sellers with many products)
+                logger.debug(f"First message received, waiting {self._publish_collect_delay}s to collect more...")
+                await asyncio.sleep(self._publish_collect_delay)
+                
+                # Collect a batch of messages
+                batch = [(message, lang)]
+                
+                # Try to get more messages for this batch (non-blocking)
+                while len(batch) < self._publish_batch_size:
+                    try:
+                        msg, lng = self._publish_queue.get_nowait()
+                        batch.append((msg, lng))
+                    except asyncio.QueueEmpty:
+                        break
+                
+                logger.info(f"Publishing batch of {len(batch)} messages (queue remaining: {self._publish_queue.qsize()})")
+                
+                # Publish all messages in the batch
+                for msg, lng in batch:
+                    try:
+                        await msg.publish()
+                        logger.info(f"Message {msg.id} published successfully")
+                    except discord.HTTPException as e:
+                        if e.status == 429:  # Rate limited
+                            retry_after = getattr(e, 'retry_after', 60)
+                            logger.warning(f"Rate limited on publish. Waiting {retry_after}s...")
+                            await asyncio.sleep(retry_after)
+                            # Try again
+                            try:
+                                await msg.publish()
+                                logger.info(f"Message {msg.id} published after rate limit wait")
+                            except Exception as retry_e:
+                                logger.error(f"Failed to publish after retry: {retry_e}")
+                        else:
+                            logger.error(f"HTTP error publishing message {msg.id}: {e}")
+                    except discord.Forbidden:
+                        logger.error(f"Missing permissions to publish message {msg.id}")
+                    except Exception as e:
+                        logger.error(f"Error publishing message {msg.id}: {e}")
+                    
+                    self._publish_queue.task_done()
+                
+                # Wait between batches if there are more messages
+                if self._publish_queue.qsize() > 0:
+                    logger.info(f"Batch complete. Waiting {self._publish_batch_delay}s before next batch ({self._publish_queue.qsize()} remaining)")
+                    await asyncio.sleep(self._publish_batch_delay)
+                    
+            except asyncio.CancelledError:
+                logger.info("Publish worker cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Publish worker error: {e}")
+                await asyncio.sleep(5)  # Brief pause on error
     
     def _create_product_embed(self, product: dict, is_new: bool, seller_name: str = None, seller_url: str = None, lang: str = "en") -> discord.Embed:
         """Creates a Discord embed for a product."""
@@ -475,6 +594,104 @@ class FabSellerTrackerBot(commands.Bot):
 bot = FabSellerTrackerBot()
 
 
+@app_commands.command(name="test", description="Test if the bot is working")
+async def test_command(interaction: discord.Interaction):
+    """Command /test - Quick test to verify bot functionality."""
+    if not interaction.guild:
+        await interaction.response.send_message(t("error_only_in_guild", "en"), ephemeral=True)
+        return
+    
+    lang = bot.get_guild_lang(interaction.guild.id)
+    config = bot.get_guild_config_obj(interaction.guild.id)
+    
+    # Build status message
+    lines = [t("test_working", lang) + "\n"]
+    
+    # Check permissions
+    is_admin = interaction.permissions.administrator
+    lines.append(f"{t('test_admin', lang)} {t('test_yes', lang) if is_admin else t('test_no', lang)}")
+    
+    # Check channel config - try to fetch if not in cache
+    channel_new = None
+    channel_updated = None
+    fetch_error_new = None
+    fetch_error_updated = None
+    
+    if config.channel_new:
+        channel_new = interaction.guild.get_channel(config.channel_new)
+        if not channel_new:
+            try:
+                channel_new = await bot.fetch_channel(config.channel_new)
+            except Exception as e:
+                fetch_error_new = str(e)
+    
+    if config.channel_updated:
+        channel_updated = interaction.guild.get_channel(config.channel_updated)
+        if not channel_updated:
+            try:
+                channel_updated = await bot.fetch_channel(config.channel_updated)
+            except Exception as e:
+                fetch_error_updated = str(e)
+    
+    # Display channel status with error details
+    if channel_new:
+        lines.append(f"{t('test_channel_new', lang)} {channel_new.mention}")
+    elif config.channel_new:
+        lines.append(f"{t('test_channel_new', lang)} ⚠️ ID {config.channel_new} ({fetch_error_new or 'not in cache'})")
+    else:
+        lines.append(f"{t('test_channel_new', lang)} {t('test_not_set', lang)}")
+    
+    if channel_updated:
+        lines.append(f"{t('test_channel_updated', lang)} {channel_updated.mention}")
+    elif config.channel_updated:
+        lines.append(f"{t('test_channel_updated', lang)} ⚠️ ID {config.channel_updated} ({fetch_error_updated or 'not in cache'})")
+    else:
+        lines.append(f"{t('test_channel_updated', lang)} {t('test_not_set', lang)}")
+    
+    # Check sellers
+    seller_count = len(config.sellers)
+    lines.append(f"{t('test_sellers', lang)} {seller_count}")
+    
+    # Check language
+    lines.append(f"{t('test_language', lang)} {lang}")
+    
+    # Check publish status
+    publish_status = t('test_yes', lang) if config.publish_announcements else t('test_no', lang)
+    lines.append(f"📢 **{t('config_publish', lang)}:** {publish_status}")
+    
+    # Try to send test message to all configured channels
+    test_channels = []
+    if channel_new:
+        test_channels.append(("new", channel_new))
+    if channel_updated:
+        test_channels.append(("updated", channel_updated))
+    
+    if test_channels:
+        lines.append(f"\n{t('test_sending', lang)}")
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        
+        results = []
+        for channel_type, test_channel in test_channels:
+            try:
+                message = await test_channel.send(t("test_message", lang))
+                
+                # Publish immediately if enabled and channel is announcement type
+                if config.publish_announcements:
+                    published = await bot._publish_message(message, lang, immediate=True)
+                    if published:
+                        results.append(t("test_sent_success", lang, channel=test_channel.mention) + f" ✅ {t('publish_success', lang)}")
+                    else:
+                        results.append(t("test_sent_success", lang, channel=test_channel.mention) + f" ⚠️ {t('publish_not_announcement_channel', lang)}")
+                else:
+                    results.append(t("test_sent_success", lang, channel=test_channel.mention))
+            except Exception as e:
+                results.append(t("test_sent_fail", lang, channel=test_channel.mention, error=str(e)))
+        
+        await interaction.followup.send("\n".join(results), ephemeral=True)
+    else:
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
 @app_commands.command(name="sub", description="Subscribe to a Fab.com seller")
 @app_commands.describe(seller_url="Seller page URL (e.g. https://fab.com/sellers/Name)")
 async def sub_command(interaction: discord.Interaction, seller_url: str):
@@ -486,7 +703,7 @@ async def sub_command(interaction: discord.Interaction, seller_url: str):
     lang = bot.get_guild_lang(interaction.guild.id)
     
     # Check permissions
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -525,7 +742,7 @@ async def unsub_command(interaction: discord.Interaction, seller_url: str):
     
     lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -553,7 +770,7 @@ async def list_command(interaction: discord.Interaction):
     
     lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
         
@@ -607,7 +824,7 @@ async def set_timezone(interaction: discord.Interaction, timezone: str):
     
     lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -647,7 +864,7 @@ async def set_checkdate(interaction: discord.Interaction, frequency: str, day_va
     """Command /set checkdate."""
     lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
         
@@ -701,7 +918,7 @@ async def set_language(interaction: discord.Interaction, language: str):
     # Get current language for error messages if needed
     current_lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", current_lang), ephemeral=True)
         return
 
@@ -736,7 +953,7 @@ async def set_currency(interaction: discord.Interaction, currency: str):
         
     lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
 
@@ -751,7 +968,7 @@ async def info_command(interaction: discord.Interaction):
     """Command /info."""
     lang = bot.get_guild_lang(interaction.guild.id) if interaction.guild else "en"
     
-    if interaction.guild and not interaction.user.guild_permissions.administrator:
+    if interaction.guild and not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -785,14 +1002,14 @@ async def info_command(interaction: discord.Interaction):
     app_commands.Choice(name="New Products", value="new_products"),
     app_commands.Choice(name="Updated Products", value="updated_products"),
 ])
-async def set_channel(interaction: discord.Interaction, notification_type: str, channel: discord.TextChannel):
+async def set_channel(interaction: discord.Interaction, notification_type: str, channel: Union[app_commands.AppCommandChannel, app_commands.AppCommandThread]):
     """Command /set channel."""
     if not interaction.guild:
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -812,6 +1029,26 @@ async def set_channel(interaction: discord.Interaction, notification_type: str, 
     )
 
 
+@set_group.command(name="publish", description="Enable or disable auto-publishing to announcement channels")
+@app_commands.describe(enabled="Whether to publish messages to followers (requires announcement channel)")
+async def set_publish_toggle(interaction: discord.Interaction, enabled: bool):
+    """Command /set publish <True/False>."""
+    if not interaction.guild:
+        return
+    
+    lang = bot.get_guild_lang(interaction.guild.id)
+    if not interaction.permissions.administrator:
+        await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
+        return
+    
+    config = bot.get_guild_config_obj(interaction.guild.id)
+    config.publish_announcements = enabled
+    bot.db.save_guild(config)
+    
+    status_text = t("status_enabled", lang) if enabled else t("status_disabled", lang)
+    await interaction.response.send_message(t("set_publish_status", lang, status=status_text))
+
+
 @set_group.command(name="mention", description="Enable or disable role mentions")
 @app_commands.describe(enabled="Whether to enable mentions")
 async def set_mention_toggle(interaction: discord.Interaction, enabled: bool):
@@ -820,7 +1057,7 @@ async def set_mention_toggle(interaction: discord.Interaction, enabled: bool):
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -854,7 +1091,7 @@ async def set_mention_role(interaction: discord.Interaction, notification_type: 
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -892,7 +1129,7 @@ async def create_roles_command(interaction: discord.Interaction):
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -951,7 +1188,7 @@ async def check_now(interaction: discord.Interaction):
     
     lang = bot.get_guild_lang(interaction.guild.id)
     
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
     
@@ -1066,7 +1303,7 @@ async def check_config(interaction: discord.Interaction):
         return
     
     lang = bot.get_guild_lang(interaction.guild.id)
-    if not interaction.user.guild_permissions.administrator:
+    if not interaction.permissions.administrator:
         await interaction.response.send_message(t("permission_denied", lang), ephemeral=True)
         return
         
@@ -1094,6 +1331,7 @@ async def check_config(interaction: discord.Interaction):
         f"**{t('config_channel_new', lang)}**: {get_ch_mention(config.channel_new)}\n"
         f"**{t('config_channel_updated', lang)}**: {get_ch_mention(config.channel_updated)}\n"
         f"**{t('config_mentions', lang)}**: {'✅' if config.mentions_enabled else '❌'}\n"
+        f"**{t('config_publish', lang)}**: {'✅' if config.publish_announcements else '❌'}\n"
     )
     
     # Roles detail

@@ -138,5 +138,27 @@
   "error_invalid_day_num": "Invalid day number. Please choose a number between 1 and 28.",
   "set_schedule_success_daily": "✅ Schedule updated: **{freq}** sync at **{hour:02d}:{minute:02d}**.",
   "set_schedule_success_weekly": "✅ Schedule updated: **{freq}** sync every **{day}** at **{hour:02d}:{minute:02d}**.",
-  "set_schedule_success_monthly": "✅ Schedule updated: **{freq}** sync every **day {day}** of the month at **{hour:02d}:{minute:02d}**."
+  "set_schedule_success_monthly": "✅ Schedule updated: **{freq}** sync every **day {day}** of the month at **{hour:02d}:{minute:02d}**.",
+  "invalid_channel_type": "❌ Invalid channel type. Please select a text channel.",
+  
+  "test_working": "✅ **Bot is working!**",
+  "test_admin": "👤 **Admin:**",
+  "test_yes": "✅ Yes",
+  "test_no": "❌ No",
+  "test_channel_new": "📢 **New Products Channel:**",
+  "test_channel_updated": "🔄 **Updated Products Channel:**",
+  "test_not_set": "❌ Not set",
+  "test_sellers": "📋 **Tracked Sellers:**",
+  "test_language": "🌐 **Language:**",
+  "test_sending": "📤 **Sending test message...**",
+  "test_sent_success": "✅ Test message sent to {channel}!",
+  "test_sent_fail": "❌ Failed to send to {channel}: {error}",
+  "test_message": "🧪 **Test Message**\nThis is a test from Fab Seller Tracker Bot!",
+  
+  "set_publish_status": "Announcement publishing is now **{status}**.",
+  "publish_success": "📢 Message published to followers.",
+  "publish_rate_limited": "⏳ Rate limited. Will retry in {seconds}s...",
+  "publish_not_announcement_channel": "⚠️ Channel is not an announcement channel. Publishing skipped.",
+  "publish_error": "❌ Failed to publish: {error}",
+  "config_publish": "Publish to Followers"
 }

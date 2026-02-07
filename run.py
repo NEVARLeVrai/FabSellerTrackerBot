@@ -24,18 +24,16 @@ def check_requirements():
         requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
     missing = []
-    try:
-        import pkg_resources
-    except ImportError:
-        missing = requirements
-    else:
-        for req in requirements:
-            if req.startswith("#") or not req.strip():
-                continue
-            try:
-                pkg_resources.require(req)
-            except (pkg_resources.DistributionNotFound, pkg_resources.VersionConflict):
-                missing.append(req)
+    from importlib.metadata import distributions
+    installed = {dist.metadata['Name'].lower(): dist.version for dist in distributions()}
+    
+    for req in requirements:
+        if req.startswith("#") or not req.strip():
+            continue
+        # Extract package name (before any version specifier)
+        pkg_name = req.split('>=')[0].split('<=')[0].split('==')[0].split('~=')[0].split('[')[0].strip().lower()
+        if pkg_name not in installed:
+            missing.append(req)
 
     if missing:
         print(f"Missing dependencies: {', '.join(missing)}")
