@@ -32,7 +32,8 @@ def load_version():
                 VERSION_INFO = json.load(f)
                 BOT_VERSION = VERSION_INFO.get("version", "Unknown")
         except Exception as e:
-            logger.error(f"Failed to load version info: {e}")
+            from bot.core.lang import t
+            logger.error(t("log_version_load_error", error=e))
 
 load_version()
 
@@ -122,7 +123,7 @@ class FabSellerTrackerBot(commands.Bot):
         
         # Sync commands
         await self.tree.sync()
-        logger.info("Slash commands synced")
+        logger.info(t("log_slash_synced"))
     
     def get_guild_config_obj(self, guild_id: int) -> GuildConfig:
         """Returns GuildConfig object, ensuring default exists."""
@@ -144,7 +145,7 @@ class FabSellerTrackerBot(commands.Bot):
     
     async def on_ready(self):
         """Called when bot is ready."""
-        logger.info(f"Connected as {self.user}")
+        logger.info(t("log_connected", user=self.user))
         
         # Set bot status
         await self.change_presence(
@@ -166,10 +167,10 @@ class FabSellerTrackerBot(commands.Bot):
         """Cancels and restarts the scheduler loop (useful when config changes)."""
         if self.check_task:
             self.check_task.cancel()
-            logger.info("Scheduler task cancelled for restart")
-        
+            logger.info(t("log_scheduler_cancelled"))
+
         self.check_task = self.loop.create_task(self._schedule_loop())
-        logger.info("Scheduler task restarted")
+        logger.info(t("log_scheduler_restarted"))
 
     async def _schedule_loop(self):
         """Main scheduler loop."""
@@ -184,21 +185,21 @@ class FabSellerTrackerBot(commands.Bot):
                     
                     if wait_seconds > 0:
                         logger.info(f"┌───────────────────────────────────────────────────┐")
-                        logger.info(f"│ 🕒 NEXT SYNC IN: {wait_seconds/3600:.1f} hours ({next_check.strftime('%A %H:%M')})")
+                        logger.info(t("log_next_sync", hours=wait_seconds/3600, time=next_check.strftime('%A %H:%M')))
                         logger.info(f"└───────────────────────────────────────────────────┘")
                         await asyncio.sleep(wait_seconds)
-                    
+
                     # Execute check
                     await self._check_all_sellers()
                 else:
                     # No scheduled check, wait 1 hour and try again
-                    logger.debug("No active schedules found, sleeping 1 hour")
+                    logger.debug(t("log_no_schedule"))
                     await asyncio.sleep(3600)
-                    
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Scheduler error: {e}")
+                logger.error(t("log_scheduler_error", error=e))
                 await asyncio.sleep(60)
                 
     def _calculate_next_check(self) -> Optional[datetime]:
@@ -274,28 +275,28 @@ class FabSellerTrackerBot(commands.Bot):
     async def _check_all_sellers(self):
         """Checks all sellers from all guilds."""
         if self.is_syncing:
-            logger.warning("Automated sync skipped: Sync already in progress")
+            logger.warning(t("log_sync_skipped"))
             return
-            
+
         self.is_syncing = True
         try:
             # Get all unique sellers from all guilds
             with self.db._get_connection() as conn:
                 rows = conn.execute("SELECT DISTINCT seller_url FROM subscriptions").fetchall()
                 all_sellers = [r['seller_url'] for r in rows]
-            
+
             count_total = len(all_sellers)
             logger.info(f"┌───────────────────────────────────────────────────┐")
-            logger.info(f"│ 🔄 SYNC STARTED ({count_total} sellers to check)        │")
+            logger.info(t("log_sync_started", count=count_total))
             logger.info(f"└───────────────────────────────────────────────────┘")
-            
+
             success_count = 0
             error_count = 0
-            
+
             for i, seller_url in enumerate(all_sellers, 1):
                 try:
                     seller_name = extract_seller_name(seller_url)
-                    logger.info(f"  » Syncing [{i}/{count_total}]: {seller_name}")
+                    logger.info(t("log_syncing_seller", current=i, total=count_total, seller=seller_name))
                     
                     currency = self.get_global_currency()
                     existing_products = self.db.get_seller_products(seller_url)
@@ -311,28 +312,28 @@ class FabSellerTrackerBot(commands.Bot):
                         new_c = len(changes.get("new", []))
                         upd_c = len(changes.get("updated", []))
                         if new_c > 0 or upd_c > 0:
-                            logger.info(f"  ↳ Changes: {new_c} new, {upd_c} updated")
-                        
+                            logger.info(t("log_changes", new=new_c, upd=upd_c))
+
                         for prod in changes.get("new", []):
                             await self._notify_guilds(seller_url, prod, is_new=True)
                             await asyncio.sleep(0.5)
-                            
+
                         for prod in changes.get("updated", []):
                             await self._notify_guilds(seller_url, prod, is_new=False)
                             await asyncio.sleep(0.5)
-                        
+
                         success_count += 1
                     else:
-                        logger.warning(f"  ↳ Scraping failed for {seller_name}")
+                        logger.warning(t("log_scraping_failed", seller=seller_name))
                         error_count += 1
-                    
+
                 except Exception as e:
-                    logger.error(f"  ↳ Check error for {seller_url}: {e}")
+                    logger.error(t("log_check_error", url=seller_url, error=e))
                     self.db.update_seller_status(seller_url, "error")
                     error_count += 1
-                    
+
             logger.info(f"┌───────────────────────────────────────────────────┐")
-            logger.info(f"│ ✅ SYNC COMPLETED: {success_count} success, {error_count} errors      │")
+            logger.info(t("log_sync_completed", success=success_count, errors=error_count))
             logger.info(f"└───────────────────────────────────────────────────┘")
         
         finally:
@@ -377,7 +378,7 @@ class FabSellerTrackerBot(commands.Bot):
                     await self._publish_message(message, lang)
                 
             except Exception as e:
-                logger.error(f"Guild notification error {guild_id_str}: {e}")
+                logger.error(t("log_guild_notif_error", guild=guild_id_str, error=e))
     
     async def _publish_message(self, message: discord.Message, lang: str = "en", immediate: bool = False):
         """Queues a message for publishing to announcement channel followers.
@@ -390,13 +391,13 @@ class FabSellerTrackerBot(commands.Bot):
         try:
             # Check if channel is an announcement channel
             if message.channel.type != discord.ChannelType.news:
-                logger.warning(f"Channel {message.channel.id} is not an announcement channel")
+                logger.warning(t("log_not_announcement", channel=message.channel.id))
                 return False
-            
+
             if immediate:
                 # Publish immediately (for /test)
                 await message.publish()
-                logger.info(f"Message {message.id} published immediately")
+                logger.info(t("log_published_immediate", msg=message.id))
                 return True
             else:
                 # Add to queue for batched publishing
@@ -405,32 +406,32 @@ class FabSellerTrackerBot(commands.Bot):
                 # Estimate: batches of 5, 2 min between batches
                 batches_needed = (queue_size + self._publish_batch_size - 1) // self._publish_batch_size
                 estimated_time = max(0, batches_needed - 1) * self._publish_batch_delay // 60
-                logger.info(f"Message {message.id} queued for publishing (queue size: {queue_size}, ~{estimated_time} min)")
+                logger.info(t("log_queued", msg=message.id, size=queue_size, time=estimated_time))
                 return True
-                
+
         except discord.Forbidden:
-            logger.error(f"Missing permissions to publish in channel {message.channel.id}")
+            logger.error(t("log_publish_no_perms", channel=message.channel.id))
             return False
         except Exception as e:
-            logger.error(f"Error queuing message for publish: {e}")
+            logger.error(t("log_publish_queue_error", error=e))
             return False
     
     async def _publish_worker(self):
         """Background worker that processes the publish queue in batches."""
-        logger.info("Publish worker started")
-        
+        logger.info(t("log_publish_worker_start"))
+
         while True:
             try:
                 # Wait for at least one message
                 message, lang = await self._publish_queue.get()
-                
+
                 # Wait a bit to let more messages accumulate (useful for new sellers with many products)
-                logger.debug(f"First message received, waiting {self._publish_collect_delay}s to collect more...")
+                logger.debug(t("log_collect_wait", delay=self._publish_collect_delay))
                 await asyncio.sleep(self._publish_collect_delay)
-                
+
                 # Collect a batch of messages
                 batch = [(message, lang)]
-                
+
                 # Try to get more messages for this batch (non-blocking)
                 while len(batch) < self._publish_batch_size:
                     try:
@@ -438,44 +439,44 @@ class FabSellerTrackerBot(commands.Bot):
                         batch.append((msg, lng))
                     except asyncio.QueueEmpty:
                         break
-                
-                logger.info(f"Publishing batch of {len(batch)} messages (queue remaining: {self._publish_queue.qsize()})")
+
+                logger.info(t("log_publishing_batch", count=len(batch), remaining=self._publish_queue.qsize()))
                 
                 # Publish all messages in the batch
                 for msg, lng in batch:
                     try:
                         await msg.publish()
-                        logger.info(f"Message {msg.id} published successfully")
+                        logger.info(t("log_published_success", msg=msg.id))
                     except discord.HTTPException as e:
                         if e.status == 429:  # Rate limited
                             retry_after = getattr(e, 'retry_after', 60)
-                            logger.warning(f"Rate limited on publish. Waiting {retry_after}s...")
+                            logger.warning(t("log_rate_limited", seconds=retry_after))
                             await asyncio.sleep(retry_after)
                             # Try again
                             try:
                                 await msg.publish()
-                                logger.info(f"Message {msg.id} published after rate limit wait")
+                                logger.info(t("log_published_retry", msg=msg.id))
                             except Exception as retry_e:
-                                logger.error(f"Failed to publish after retry: {retry_e}")
+                                logger.error(t("log_publish_retry_fail", error=retry_e))
                         else:
-                            logger.error(f"HTTP error publishing message {msg.id}: {e}")
+                            logger.error(t("log_http_error", msg=msg.id, error=e))
                     except discord.Forbidden:
-                        logger.error(f"Missing permissions to publish message {msg.id}")
+                        logger.error(t("log_publish_forbidden", msg=msg.id))
                     except Exception as e:
-                        logger.error(f"Error publishing message {msg.id}: {e}")
-                    
+                        logger.error(t("log_publish_error", msg=msg.id, error=e))
+
                     self._publish_queue.task_done()
-                
+
                 # Wait between batches if there are more messages
                 if self._publish_queue.qsize() > 0:
-                    logger.info(f"Batch complete. Waiting {self._publish_batch_delay}s before next batch ({self._publish_queue.qsize()} remaining)")
+                    logger.info(t("log_batch_wait", delay=self._publish_batch_delay, remaining=self._publish_queue.qsize()))
                     await asyncio.sleep(self._publish_batch_delay)
-                    
+
             except asyncio.CancelledError:
-                logger.info("Publish worker cancelled")
+                logger.info(t("log_worker_cancelled"))
                 break
             except Exception as e:
-                logger.error(f"Publish worker error: {e}")
+                logger.error(t("log_worker_error", error=e))
                 await asyncio.sleep(5)  # Brief pause on error
     
     def _create_product_embed(self, product: dict, is_new: bool, seller_name: str = None, seller_url: str = None, lang: str = "en") -> discord.Embed:
@@ -1214,7 +1215,7 @@ async def check_now(interaction: discord.Interaction):
     bot.is_syncing = True
     try:
         logger.info(f"┌───────────────────────────────────────────────────┐")
-        logger.info(f"│ 🔄 MANUAL SYNC STARTED (Guild: {interaction.guild.name})")
+        logger.info(t("log_manual_sync_start", guild=interaction.guild.name))
         logger.info(f"└───────────────────────────────────────────────────┘")
     
         total_new = 0
@@ -1232,10 +1233,10 @@ async def check_now(interaction: discord.Interaction):
                     if current_item % 5 == 0 or current_item == total_items:
                         await progress_msg.edit(content=f"{t('check_progress', lang, current=i, total=total_sellers, seller=seller_name)}{t('check_progress_detail', lang, current=current_item, total=total_items, product=product_name)}")
                 except Exception as e:
-                    logger.warning(f"Failed to update progress message: {e}")
+                    logger.warning(t("log_progress_update_fail", error=e))
     
             try:
-                logger.info(f"  » Syncing [{i}/{total_sellers}]: {seller_name}")
+                logger.info(t("log_syncing_seller", current=i, total=total_sellers, seller=seller_name))
                 
                 currency = bot.get_global_currency()
                 existing_products = bot.db.get_seller_products(seller_url)
@@ -1275,14 +1276,14 @@ async def check_now(interaction: discord.Interaction):
                     error_count += 1
                         
             except Exception as e:
-                logger.error(f"Manual check error {seller_url}: {e}")
+                logger.error(t("log_check_error", url=seller_url, error=e))
                 await interaction.followup.send(t("check_error", lang, seller=seller_name, error=str(e)[:100]))
                 
                 bot.db.update_seller_status(seller_url, "error")
                 error_count += 1
         
         logger.info(f"┌───────────────────────────────────────────────────┐")
-        logger.info(f"│ ✅ MANUAL SYNC COMPLETED: {success_count} success, {error_count} errors")
+        logger.info(t("log_manual_sync_complete", success=success_count, errors=error_count))
         logger.info(f"└───────────────────────────────────────────────────┘")
     
         # Final message

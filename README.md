@@ -12,7 +12,7 @@ Discord Bot to track seller products on [Fab.com](https://fab.com) and receive a
 - 📢 **Announcement Publishing**: Auto-publish messages to Discord announcement channels with smart batch system (5 messages/batch, 7 min delay).
 - ⏰ **Reactive Scheduler**: Flexible check times (Daily, Weekly, Monthly) that update immediately when changed.
 - 🔒 **Synchronization Lock**: Prevents concurrent checks and double notifications (safety first!).
-- 🌍 **Global Support**: Multi-server, multi-timezone, and multi-language (English/French).
+- 🌍 **Global Support**: Multi-server, multi-timezone, and complete multi-language (English/French) - including all logs and system messages.
 - 💰 **Accurate Pricing**: Multi-currency support (USD/EUR) with VAT-exclusive extraction and IP-lock bypass.
 - 🔗 **Smart Normalization**: Case-insensitive URL standardization to prevent duplicate tracking/notifications.
 - 📜 **Changelog & Versions**: Automatic extraction of product logs and supported Unreal Engine versions.

@@ -1,6 +1,13 @@
 {
-  "version": "3.2.0",
+  "version": "3.3.0",
   "changelog": {
+    "3.3.0": [
+      "Complete translation system overhaul - all messages now use JSON translation files",
+      "Translated all logger statements to support bilingual output (EN/FR)",
+      "Added early translation support in run.py before dependencies are installed",
+      "Standardized translation keys across the entire codebase (66 new keys)",
+      "Improved consistency between user messages, logs, and system notifications"
+    ],
     "3.2.0": [
       "Added announcement publishing feature with /set publish command",
       "Implemented smart batch publishing (5 messages/batch, 7 min delay between batches)",

@@ -8,7 +8,7 @@ import json
 from loguru import logger
 
 # Default language
-DEFAULT_LANGUAGE = "en"
+DEFAULT_LANGUAGE = "fr"
 
 # Cache for loaded languages
 _languages_cache: dict = {}
@@ -32,23 +32,23 @@ def load_languages() -> None:
     _available_languages = []
     
     if not os.path.exists(lang_dir):
-        logger.warning(f"Language directory not found: {lang_dir}")
+        logger.warning(get_text("lang_dir_not_found", lang="en", dir=lang_dir))
         return
-    
+
     for filename in os.listdir(lang_dir):
         if filename.endswith(".json"):
             lang_code = filename[:-5]  # Remove .json
             filepath = os.path.join(lang_dir, filename)
-            
+
             try:
                 with open(filepath, "r", encoding="utf-8") as f:
                     _languages_cache[lang_code] = json.load(f)
                     _available_languages.append(lang_code)
-                    logger.info(f"Loaded language: {lang_code}")
+                    logger.info(get_text("lang_loaded", lang="en", code=lang_code))
             except Exception as e:
-                logger.error(f"Failed to load language {lang_code}: {e}")
-    
-    logger.info(f"Available languages: {', '.join(_available_languages)}")
+                logger.error(get_text("lang_load_error", lang="en", code=lang_code, error=e))
+
+    logger.info(get_text("lang_available", lang="en", codes=', '.join(_available_languages)))
 
 
 def get_available_languages() -> list:
@@ -89,7 +89,7 @@ def get_text(key: str, lang: str = DEFAULT_LANGUAGE, **kwargs) -> str:
         try:
             text = text.format(**kwargs)
         except KeyError as e:
-            logger.warning(f"Missing format key {e} for {key}")
+            logger.warning(get_text("lang_missing_format_key", lang="en", key=e, text=key))
     
     return text
 
